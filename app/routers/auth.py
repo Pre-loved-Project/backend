@@ -1,4 +1,3 @@
-#app/routers/auth.py
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -51,16 +50,16 @@ def signup(payload: SignupIn, db: Session = Depends(get_db)):
     if db.query(User.userId).filter(User.nickname == payload.user_name).first():
         raise HTTPException(status_code=400, detail="nickname_conflict")
 
-    # birthDate 문자열 → date 객체로 변환
+    # birthDate 문자열 → date 객체 변환
     try:
         bd_date = datetime.strptime(payload.birth_date, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail="invalid_birthDate_format")
 
-    # 사용자 생성
+    # ✅ 비밀번호 해시: 프론트에서 해싱한 문자열 그대로 저장
     u = User(
         email=payload.email,
-        password_hash=payload.password_hash_input,  # 클라에서 해싱한 값 그대로 저장
+        password_hash=payload.password_hash_input,
         nickname=payload.user_name,
         birth_date=bd_date,
     )
@@ -69,7 +68,6 @@ def signup(payload: SignupIn, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(u)
 
-    # 응답 직렬화
     return {
         "userId": u.userId,
         "email": u.email,
@@ -85,10 +83,12 @@ def signup(payload: SignupIn, db: Session = Depends(get_db)):
 def login(payload: LoginIn, db: Session = Depends(get_db)):
     """
     명세: username + passwordHash
-    - username 은 이메일을 아이디로 사용
-    - passwordHash 는 클라에서 해싱해 보낸 문자열 (서버 비교만 수행)
+    - username: 이메일
+    - passwordHash: 프론트에서 해싱한 문자열 그대로
     """
     user = db.query(User).filter(User.email == payload.username).first()
+
+    #DB 해시 비교
     if not user or user.password_hash != payload.password_hash_input:
         raise HTTPException(status_code=401, detail="invalid_credentials")
 
