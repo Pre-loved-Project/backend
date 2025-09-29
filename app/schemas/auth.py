@@ -45,3 +45,14 @@ class UsernameUsedOut(BaseModel):
     is_user_name_used: bool = Field(alias="isUserNameUsed")
 
     model_config = {"populate_by_name": True}
+# ── 요청: 로그인 ─────────────────────────────────────────────
+class LoginIn(BaseModel):
+    username: str
+    password_hash_input: str = Field(alias="passwordHash", min_length=8)
+    model_config = {"populate_by_name": True}
+
+# ── 응답: 로그인 ─────────────────────────────────────────────
+class LoginOut(BaseModel):
+    access_token: str = Field(alias="accessToken")
+    refresh_token: str = Field(alias="refreshToken")
+    model_config = {"populate_by_name": True}
