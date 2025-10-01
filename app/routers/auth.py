@@ -13,6 +13,7 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_refresh_token,
+    decode_access_token,   # accessToken 검증 함수 추가
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -82,15 +83,16 @@ def refresh(request: Request):
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
 def logout(request: Request, response: Response):
-    token = request.cookies.get("refreshToken")
-    if not token:
-        raise HTTPException(status_code=401, detail="no_refresh_token")
+    auth = request.headers.get("Authorization")
+    if not auth or not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing_bearer_token")
+    token = auth.split(" ", 1)[1].strip()
     try:
-        decode_refresh_token(token)
+        decode_access_token(token)   # accessToken 유효성 검증
     except ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="refresh_token_expired")
+        raise HTTPException(status_code=401, detail="access_token_expired")
     except JWTError:
-        raise HTTPException(status_code=401, detail="invalid_refresh_token")
+        raise HTTPException(status_code=401, detail="invalid_access_token")
     response.delete_cookie(
         key="refreshToken",
         path="/",
