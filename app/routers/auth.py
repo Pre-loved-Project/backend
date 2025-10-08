@@ -51,8 +51,9 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="invalid_credentials")
-    access = create_access_token(subject=user.userId)
-    refresh = create_refresh_token(subject=user.userId)
+    uid = str(getattr(user, "user_id", getattr(user, "userId")))
+    access = create_access_token(sub=uid)
+    refresh = create_refresh_token(sub=uid)
     response.set_cookie(
         key="refreshToken",
         value=refresh,
