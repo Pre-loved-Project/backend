@@ -7,17 +7,28 @@ from app.core.config import settings
 from app.core.db import get_db
 from app.models.user import User
 
+print("### IMPORT auth.py OK")
 
 bearer = HTTPBearer(auto_error=False)
 
+
 def _user_pk_col():
-    # User 모델 PK 속성명이 user_id 또는 userId 어떤 것이든 대응
-    return getattr(User, "user_id", getattr(User, "userId"))
+    """✅ User 모델의 PK 컬럼 자동 탐색 (user_id → userId → id 순서)"""
+    if hasattr(User, "user_id"):
+        return User.user_id
+    elif hasattr(User, "userId"):
+        return User.userId
+    elif hasattr(User, "id"):
+        return User.id
+    else:
+        raise AttributeError("User 모델에 PK 컬럼(user_id, userId, id)이 없습니다.")
+
 
 def get_current_user(
     creds: HTTPAuthorizationCredentials = Depends(bearer),
     db: Session = Depends(get_db),
 ) -> User:
+    """JWT 토큰 인증 후 현재 사용자 객체 반환"""
     if not creds or (creds.scheme or "").lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -27,8 +38,10 @@ def get_current_user(
 
     token = creds.credentials
     try:
-        # ✅ ACCESS 토큰은 ACCESS 시크릿으로 검증
-        payload = jwt.decode(token, settings.JWT_ACCESS_SECRET, algorithms=[settings.JWT_ALG])
+        # ✅ ACCESS 토큰 검증
+        payload = jwt.decode(
+            token, settings.JWT_ACCESS_SECRET, algorithms=[settings.JWT_ALG]
+        )
         sub = payload.get("sub")
         if not sub:
             raise JWTError("missing sub")
@@ -45,7 +58,7 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # PK 컬럼 자동 선택(user_id 또는 userId)
+    # ✅ user_id 기준으로 사용자 조회
     pk_col = _user_pk_col()
     user = db.query(User).filter(pk_col == int(sub)).first()
     if not user:
@@ -54,4 +67,5 @@ def get_current_user(
             detail="invalid_token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
     return user
