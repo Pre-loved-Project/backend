@@ -24,13 +24,14 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Create and start virtual environment
+      - name: Install dependencies
         run: |
           python -m venv venv
-          source venv/bin/activate
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+          venv/bin/pip install -r requirements.txt
+          venv/bin/pip install alembic
+      - name: Run Alembic Migrations
+        run: |
+          venv/bin/alembic upgrade head
 
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
 
@@ -68,3 +69,8 @@ jobs:
         with:
           app-name: "chalddack"
           slot-name: "Production"
+
+      - name: Run Alembic Migrations
+        run: |
+          pip install alembic
+          alembic upgrade head
