@@ -1,33 +1,68 @@
 # app/core/auth.py
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt, JWTError, ExpiredSignatureError
 from sqlalchemy.orm import Session
+
 from app.core.config import settings
 from app.core.db import get_db
 from app.models.user import User
+print("### IMPORT auth.py OK")
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+bearer = HTTPBearer(auto_error=False)
+
+def _user_pk_col():
+    # ✅ User 모델의 PK 컬럼 자동 탐색 (user_id → userId → id 순서)
+    if hasattr(User, "user_id"):
+        return User.user_id
+    elif hasattr(User, "userId"):
+        return User.userId
+    elif hasattr(User, "id"):
+        return User.id
+    else:
+        raise AttributeError("User 모델에 PK 컬럼(user_id, userId, id)이 없습니다.")
+
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    creds: HTTPAuthorizationCredentials = Depends(bearer),
     db: Session = Depends(get_db),
 ) -> User:
-    cred_exc = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="invalid_token",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    if not creds or (creds.scheme or "").lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid_token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = creds.credentials
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALG])
+        # ✅ ACCESS 토큰 검증
+        payload = jwt.decode(token, settings.JWT_ACCESS_SECRET, algorithms=[settings.JWT_ALG])
         sub = payload.get("sub")
-        if sub is None:
-            raise cred_exc
+        if not sub:
+            raise JWTError("missing sub")
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="token_expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     except JWTError:
-        raise cred_exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid_token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    user = db.query(User).filter(User.userId == int(sub)).first()
+    # ✅ user_id 기준으로 사용자 조회
+    pk_col = _user_pk_col()
+    user = db.query(User).filter(pk_col == int(sub)).first()
 
-    if user is None:
-        raise cred_exc
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid_token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user

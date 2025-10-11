@@ -32,3 +32,10 @@ app.db
 
 # Node (혹시 프론트 같이 있을 때)
 node_modules/
+# local stuff
+app.db
+.env
+.venv/
+__pycache__/
+*.pyc
+profile.png
