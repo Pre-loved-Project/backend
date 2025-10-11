@@ -10,3 +10,4 @@ python-jose[cryptography]
 python-multipart
 Pillow
 pydantic-settings
+azure-storage-blob
