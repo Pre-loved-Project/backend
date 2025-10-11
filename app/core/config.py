@@ -6,7 +6,7 @@ except ImportError:
     SettingsConfigDict = None
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "sqlite:///./app.db"
+    DATABASE_URL: str
 
     # legacy: JWT_SECRET 유지(=access와 동일 값). 앞으로는 JWT_ACCESS_SECRET 사용
     JWT_SECRET: str = "change-this-secret"
