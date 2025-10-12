@@ -24,6 +24,11 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Create venv
+        run: |
+          python3 -m venv venv
+          if [ ! -f "venv/bin/python3" ]; then echo "Venv creation failed"; exit 1; fi
+
       - name: Create and start virtual environment
         run: |
           python3 -m venv venv
