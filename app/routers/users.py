@@ -1,63 +1,66 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from datetime import datetime
-
 from app.core.db import get_db
-from app.core.auth import get_current_user
 from app.models.user import User
-from app.schemas.user import (
-    UserOut,
-    UserUpdateIn,
-    UserDeleteOut,
-)
+from app.schemas.user import UserCreateIn, UserOut, MeUpdateIn
+from app.core.security import hash_password, get_current_user
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(prefix="/api/users", tags=["users"])
 
+@router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def create_user(payload: UserCreateIn, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.email == payload.email).first():
+        raise HTTPException(status_code=400, detail="EMAIL_DUPLICATE")
+    if db.query(User).filter(User.nickname == payload.nickname).first():
+        raise HTTPException(status_code=400, detail="NICKNAME_DUPLICATE")
 
-# ── 유저 정보 조회 ─────────────────────────────────────────────
-@router.get("/me", response_model=UserOut, status_code=status.HTTP_200_OK)
-def get_me(current_user: User = Depends(get_current_user)):
-    return current_user
-
-
-# ── 유저 정보 수정 ─────────────────────────────────────────────
-@router.put("/me", response_model=UserOut, status_code=status.HTTP_200_OK)
-def update_me(
-    payload: UserUpdateIn,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    # 닉네임 변경
-    if payload.nickname is not None:
-        current_user.nickname = payload.nickname
-
-    # 생년월일 변경
-    if payload.birth_date is not None:
-        current_user.birth_date = payload.birth_date
-
-    # 비밀번호 변경 (프론트 해시 → 서버 Argon2)
-    if payload.password_hash_input is not None:
-        from app.core.security import hash_password
-        current_user.password_hash = hash_password(payload.password_hash_input)
-
-    current_user.updated_at = datetime.utcnow()
-    db.add(current_user)
+    user = User(
+        email=payload.email,
+        nickname=payload.nickname,
+        birth_date=payload.birth_date,
+        password_hash=hash_password(payload.password),
+        introduction="",
+        image_url="",
+        category="",
+        sell_count=0,
+        buy_count=0,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(user)
     db.commit()
-    db.refresh(current_user)
+    db.refresh(user)
+    return user
 
-    return current_user
+@router.get("/me", response_model=UserOut)
+def get_me(current: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    me = db.query(User).filter(User.user_id == current.user_id).first()
+    if not me:
+        raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
+    return me
 
+@router.patch("/me", response_model=UserOut)
+def update_me(payload: MeUpdateIn, current: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    me = db.query(User).filter(User.user_id == current.user_id).first()
+    if not me:
+        raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
 
-# ── 유저 정보 삭제 ─────────────────────────────────────────────
-@router.delete("/me", response_model=UserDeleteOut, status_code=status.HTTP_200_OK)
-def delete_me(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    user_id = current_user.userId
+    data = payload.model_dump(exclude_unset=True, by_alias=False)
 
-    # 유저 삭제
-    db.delete(current_user)
+    if "nickname" in data:
+        exists = db.query(User).filter(User.nickname == data["nickname"], User.user_id != me.user_id).first()
+        if exists:
+            raise HTTPException(status_code=400, detail="NICKNAME_DUPLICATE")
+        me.nickname = data["nickname"]
+    if "introduction" in data:
+        me.introduction = data["introduction"]
+    if "image_url" in data:
+        me.image_url = data["image_url"]
+    if "category" in data:
+        me.category = data["category"]
+
+    me.updated_at = datetime.utcnow()
     db.commit()
-
-    return {"userId": user_id}
+    db.refresh(me)
+    return me

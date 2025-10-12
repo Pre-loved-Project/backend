@@ -1,21 +1,14 @@
-# app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.core.db import Base, engine
+from app.core.config import settings
 
-# 모델: 반드시 PostingImage까지 import 해 테이블이 생성되게!
-from app.models.user import User
-from app.models.posting import Posting, PostingImage
-from app.models.favorite import Favorite
-from app.models.consent import UserConsent
-from app.models.email_verification import EmailVerification
-
-# 모든 모델 import가 끝난 뒤 테이블 생성
-Base.metadata.create_all(bind=engine)
-
+# ✅ 1) FastAPI 앱 생성
 app = FastAPI(title="Pre-loved API")
 
+# ✅ 2) 미들웨어
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -24,14 +17,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 라우터
-from app.routers import users, auth, postings, favorites, predict
-app.include_router(users.router)
-app.include_router(auth.router)
-app.include_router(postings.router)    # ← 파일명이 postings.py일 때
-app.include_router(favorites.router)
-app.include_router(predict.router)
+# ✅ 3) DB 모델 import & create_all
+from app.models.user import User
+from app.models.posting import Posting, PostingImage
+from app.models.favorite import Favorite
+from app.models.consent import UserConsent
+from app.models.email_verification import EmailVerification
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+print("### DB URL =", settings.DATABASE_URL)
+print("### tables BEFORE:", list(Base.metadata.tables.keys()))
+Base.metadata.create_all(bind=engine)
+print("### tables AFTER :", list(Base.metadata.tables.keys()))
+with engine.connect() as conn:
+    rows = conn.execute(text("PRAGMA database_list;")).all()
+    print("### PRAGMA database_list:", rows)
+
+# ✅ 4) 라우터 등록
+from app.routers.health import router as health_router
+from app.routers.auth import router as auth_router
+from app.routers.users import router as users_router
+from app.routers.postings import router as postings_router
+from app.routers.favorites import router as favorites_router
+from app.routers.predict import router as predict_router
+from app.routers.image import router as image_router  # ← 여기!
+
+app.include_router(health_router)
+app.include_router(auth_router)
+app.include_router(users_router)
+app.include_router(postings_router)
+app.include_router(favorites_router)
+app.include_router(predict_router)
+app.include_router(image_router)  # ← app 선언 이후에 등록해야 함!
+
+# ✅ 5) 라우트 확인 로그
+print("### ROUTES (method, path)")
+for r in app.routes:
+    try:
+        print("   ", getattr(r, "methods", None), getattr(r, "path", None))
+    except Exception:
+        pass
