@@ -1,14 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-
 from app.core.db import Base, engine
 from app.core.config import settings
 
 # ✅ 1) FastAPI 앱 생성
 app = FastAPI(title="Pre-loved API")
 
-# ✅ 2) 미들웨어
+# ✅ 2) CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -28,9 +27,26 @@ print("### DB URL =", settings.DATABASE_URL)
 print("### tables BEFORE:", list(Base.metadata.tables.keys()))
 Base.metadata.create_all(bind=engine)
 print("### tables AFTER :", list(Base.metadata.tables.keys()))
-with engine.connect() as conn:
-    rows = conn.execute(text("PRAGMA database_list;")).all()
-    print("### PRAGMA database_list:", rows)
+
+# ✅ 3-1) DB 연결 진단 로그
+backend = engine.url.get_backend_name()  # "sqlite" | "postgresql" | "mysql" ...
+try:
+    with engine.connect() as conn:
+        if backend == "sqlite":
+            rows = conn.execute(text("PRAGMA database_list;")).all()
+            print("### PRAGMA database_list:", rows)
+        elif backend == "postgresql":
+            ver = conn.execute(text("select version()")).scalar_one()
+            who = conn.execute(text("select current_user")).scalar_one()
+            dbn = conn.execute(text("select current_database()")).scalar_one()
+            print("### PostgreSQL connected ✅")
+            print("    version:", ver)
+            print("    user:", who)
+            print("    database:", dbn)
+        else:
+            print(f"### DB backend: {backend}")
+except Exception as e:
+    print("### ⚠️ DB connection check failed:", e)
 
 # ✅ 4) 라우터 등록
 from app.routers.health import router as health_router
@@ -39,17 +55,22 @@ from app.routers.users import router as users_router
 from app.routers.postings import router as postings_router
 from app.routers.favorites import router as favorites_router
 from app.routers.predict import router as predict_router
-from app.routers.image import router as image_router  # ← 여기!
+from app.routers.image import router as image_router
 
-app.include_router(health_router)
-app.include_router(auth_router)
-app.include_router(users_router)
-app.include_router(postings_router)
-app.include_router(favorites_router)
-app.include_router(predict_router)
-app.include_router(image_router)  # ← app 선언 이후에 등록해야 함!
+routers = [
+    health_router,
+    auth_router,
+    users_router,
+    postings_router,
+    favorites_router,
+    predict_router,
+    image_router,
+]
 
-# ✅ 5) 라우트 확인 로그
+for r in routers:
+    app.include_router(r)
+
+# ✅ 5) 등록된 라우트 확인 로그
 print("### ROUTES (method, path)")
 for r in app.routes:
     try:
