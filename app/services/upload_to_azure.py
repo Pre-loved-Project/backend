@@ -1,44 +1,30 @@
+# app/services/upload_to_azure.py
+from typing import Optional
 from azure.storage.blob import BlobServiceClient, ContentSettings
-from fastapi import UploadFile, HTTPException
-import uuid
-import os
-from dotenv import load_dotenv
+from app.core.config import settings
 
+# .env 값은 Settings가 이미 로드함
+CONN = settings.AZURE_STORAGE_CONNECTION_STRING
+CONTAINER = settings.AZURE_CONTAINER_NAME
 
-#환경 변수 불러오기
-load_dotenv()
+# 방어적으로 체크
+if not CONN:
+    raise RuntimeError("AZURE_STORAGE_CONNECTION_STRING is missing")
+if not CONTAINER:
+    raise RuntimeError("AZURE_CONTAINER_NAME is missing (Blob 컨테이너 이름을 넣어야 함)")
 
-AZURE_CONNECTION_STRING = os.getenv("AZURE_STOARGE_CONNECTION_STRING")
-CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME", "uploads")
+# 클라이언트 준비
+blob_service_client = BlobServiceClient.from_connection_string(CONN)
 
-print(AZURE_CONNECTION_STRING)
-print(CONTAINER_NAME)
+# (선택) 컨테이너 자동 생성
+try:
+    blob_service_client.create_container(CONTAINER)
+except Exception:
+    pass  # 이미 있으면 스킵
 
-#Blob service client load
-blob_service_client = BlobServiceClient.from_connection_string(AZURE_CONNECTION_STRING)
-container_client = blob_service_client.get_container_client(CONTAINER_NAME)
-
-def upload_to_azure(image: UploadFile) -> str:
-    """
-    이미지를 Azure Blob Storage에 저장하고 저장된 이미지에 접근할 수 있는 url을 반환합니다.
-    """
-    if not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="이미지 파일을 선택해주세요.")
-
-    try:
-        #파일 확장자 및 이름 설정
-        extension = image.filename.split(".")[-1]
-        blob_name = f"profile_{uuid.uuid4()}.{extension}"
-
-        #Blob 업로드
-        blob_client = container_client.get_blob_client(blob_name)
-        blob_client.upload_blob(
-            image.file,
-            overwrite=True,
-            content_settings=ContentSettings(content_type=image.content_type)
-        )
-
-        image_url = f"https://{blob_service_client.account_name}.blob.core.windows.net/{CONTAINER_NAME}/{blob_name}"
-        return image_url
-    except Exception as e:
-        return HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+def upload_to_azure(data: bytes, blob_name: str, content_type: Optional[str] = None) -> str:
+    """바이트 데이터를 주어진 blob 이름으로 업로드하고 URL을 반환."""
+    blob_client = blob_service_client.get_blob_client(container=CONTAINER, blob=blob_name)
+    content_settings = ContentSettings(content_type=content_type) if content_type else None
+    blob_client.upload_blob(data, overwrite=True, content_settings=content_settings)
+    return blob_client.url
