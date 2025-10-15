@@ -1,3 +1,4 @@
+# app/schemas/auth.py
 from typing import Union
 from pydantic import BaseModel, Field, EmailStr, field_validator
 from datetime import datetime, date
