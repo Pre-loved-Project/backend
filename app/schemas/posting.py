@@ -1,76 +1,69 @@
-# app/schemas/posting.py
-from typing import List, Optional, Generic, TypeVar
-from datetime import datetime
-from pydantic import BaseModel, Field, HttpUrl, conint, field_validator
+from typing import List, Literal, Optional
+from pydantic import BaseModel, HttpUrl, Field
+from pydantic import ConfigDict
 
-def to_camel(s: str) -> str:
-    parts = s.split('_')
-    return parts[0] + ''.join(p.capitalize() for p in parts[1:])
+# ✅ 먼저 정의: 카테고리 리터럴
+Category = Literal[
+    "전자제품/가전제품",
+    "식료품",
+    "의류/패션",
+    "스포츠/레저",
+    "뷰티",
+    "게임",
+    "도서/음반/문구",
+    "티켓/쿠폰",
+    "리빙/가구/생활",
+    "반려동물/취미",
+]
 
-class CamelModel(BaseModel):
-    # pydantic v2
-    model_config = dict(populate_by_name=True, alias_generator=to_camel, from_attributes=True)
+class PostingImageOut(BaseModel):
+    url: HttpUrl
+    model_config = ConfigDict(from_attributes=True)
 
-class PostingCreateIn(CamelModel):
-    title: str = Field(min_length=1, max_length=100)
-    price: conint(ge=0)
-    content: str = Field(min_length=1, max_length=5000)
-    images: List[HttpUrl] = Field(min_length=1, max_length=10)
-
-class PostingUpdateIn(CamelModel):
-    title: Optional[str] = Field(default=None, min_length=1, max_length=100)
-    price: Optional[conint(ge=0)] = None
-    content: Optional[str] = Field(default=None, min_length=1, max_length=5000)
-    images: Optional[List[HttpUrl]] = Field(default=None, min_length=1, max_length=10)
-
-class PostingOut(CamelModel):
-    posting_id: int
-    seller_id: int
+class PostingCreateIn(BaseModel):
     title: str
     price: int
     content: str
-    view_count: int
-    like_count: int
-    chat_count: int
-    created_at: datetime
-    updated_at: datetime
-    images: List[HttpUrl]
+    category: Category
+    images: List[HttpUrl] = Field(default_factory=list)
 
-    # ✅ ORM의 PostingImage 객체 리스트를 검증 '이전'에 URL 문자열 리스트로 변환
-    @field_validator("images", mode="before")
-    @classmethod
-    def _coerce_images(cls, v):
-        if not v:
-            return []
-        return [getattr(i, "url", i) for i in v]
+class PostingUpdateIn(BaseModel):
+    title: Optional[str] = None
+    price: Optional[int] = None
+    content: Optional[str] = None
+    category: Optional[Category] = None
+    images: Optional[List[HttpUrl]] = None
 
-class PostingListItemOut(CamelModel):
-    posting_id: int
+class PostingOut(BaseModel):
+    postingId: int
+    sellerId: int
     title: str
     price: int
-    seller_id: int
-    created_at: datetime
-    like_count: int
-    chat_count: int
-    view_count: int
-    thumbnail: Optional[HttpUrl] = None
+    content: str
+    category: Category
+    viewCount: int
+    likeCount: int
+    chatCount: int
+    createdAt: str
+    updatedAt: str
+    images: List[HttpUrl]
+    isOwner: Optional[bool] = None  # Py3.9는 Optional 사용
+
+class PostingListItem(BaseModel):
+    postingId: int
+    sellerId: int
+    title: str
+    price: int
     content: Optional[str] = None
+    category: Category
+    createdAt: str
+    likeCount: int
+    chatCount: int
+    viewCount: int
+    thumbnail: Optional[HttpUrl] = None
 
-T = TypeVar("T")
-
-class PageOut(CamelModel, Generic[T]):
+class PageOut(BaseModel):
     page: int
     size: int
     total: int
-    data: List[T]
-
-class FavoriteToggleIn(CamelModel):
-    favorite: bool
-
-class FavoriteToggleOut(CamelModel):
-    message: str
-    posting_id: int
-    user_id: int
-    favorite: bool
-    updated_at: datetime
-
+    data: List[PostingListItem]
