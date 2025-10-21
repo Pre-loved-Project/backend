@@ -1,8 +1,10 @@
+# app/schemas/posting.py
+from datetime import datetime
 from typing import List, Literal, Optional
-from pydantic import BaseModel, HttpUrl, Field
-from pydantic import ConfigDict
+from pydantic import HttpUrl, Field
+from .base import BaseSchema  # ✅ camelCase 자동 변환 베이스
 
-# ✅ 먼저 정의: 카테고리 리터럴
+# ✅ 먼저 정의: 카테고리 리터럴 (그대로 사용)
 Category = Literal[
     "전자제품/가전제품",
     "식료품",
@@ -16,53 +18,52 @@ Category = Literal[
     "반려동물/취미",
 ]
 
-class PostingImageOut(BaseModel):
+class PostingImageOut(BaseSchema):
     url: HttpUrl
-    model_config = ConfigDict(from_attributes=True)
 
-class PostingCreateIn(BaseModel):
+class PostingCreateIn(BaseSchema):
     title: str
     price: int
     content: str
     category: Category
     images: List[HttpUrl] = Field(default_factory=list)
 
-class PostingUpdateIn(BaseModel):
+class PostingUpdateIn(BaseSchema):
     title: Optional[str] = None
     price: Optional[int] = None
     content: Optional[str] = None
     category: Optional[Category] = None
     images: Optional[List[HttpUrl]] = None
 
-class PostingOut(BaseModel):
-    postingId: int
-    sellerId: int
+class PostingOut(BaseSchema):
+    posting_id: int
+    seller_id: int
     title: str
     price: int
     content: str
     category: Category
-    viewCount: int
-    likeCount: int
-    chatCount: int
-    createdAt: str
-    updatedAt: str
+    view_count: int
+    like_count: int
+    chat_count: int
+    created_at: datetime
+    updated_at: datetime
     images: List[HttpUrl]
-    isOwner: Optional[bool] = None  # Py3.9는 Optional 사용
+    is_owner: Optional[bool] = None
 
-class PostingListItem(BaseModel):
-    postingId: int
-    sellerId: int
+class PostingListItem(BaseSchema):
+    posting_id: int
+    seller_id: int
     title: str
     price: int
     content: Optional[str] = None
     category: Category
-    createdAt: str
-    likeCount: int
-    chatCount: int
-    viewCount: int
+    created_at: datetime
+    like_count: int
+    chat_count: int
+    view_count: int
     thumbnail: Optional[HttpUrl] = None
 
-class PageOut(BaseModel):
+class PageOut(BaseSchema):
     page: int
     size: int
     total: int

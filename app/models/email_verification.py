@@ -1,4 +1,3 @@
-# app/models/email_verification.py
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, func
 from app.core.db import Base
 

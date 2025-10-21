@@ -4,7 +4,8 @@ from app.core.db import Base
 class UserConsent(Base):
     __tablename__ = "user_consents"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.userId"), nullable=False)
+    # users.userId로 맞춤 (이미 OK)
+    user_id = Column(Integer, ForeignKey("users.userId", ondelete="CASCADE"), nullable=False)
     tos = Column(Boolean, nullable=False)
     privacy = Column(Boolean, nullable=False)
     marketing = Column(Boolean, nullable=False, default=False)

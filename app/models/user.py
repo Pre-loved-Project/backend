@@ -4,9 +4,10 @@ from app.core.db import Base
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = {"sqlite_autoincrement": True}  # ✅ 반드시 추가
+    __table_args__ = {"sqlite_autoincrement": True}
 
-    user_id = Column("userId", Integer, primary_key=True, index=True, autoincrement=True)  # ✅ 중요
+    # DB 컬럼명 "userId", ORM 속성명 user_id
+    user_id = Column("userId", Integer, primary_key=True, index=True, autoincrement=True)
 
     email = Column(String(255), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
@@ -22,3 +23,8 @@ class User(Base):
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # ✅ 과도기 호환용 (me.id 대신 me.user_id 사용 권장)
+    @property
+    def id(self) -> int:
+        return self.user_id

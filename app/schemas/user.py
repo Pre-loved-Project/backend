@@ -1,34 +1,11 @@
+# app/schemas/user.py
 from datetime import datetime, date
-from typing import Optional, ClassVar
-from pydantic import BaseModel, EmailStr, HttpUrl, field_validator, ConfigDict
+from typing import Optional
+from pydantic import EmailStr, HttpUrl, Field, field_validator
+from .base import BaseSchema
+from .common import ALLOWED_CATEGORIES
 
-def to_camel(s: str) -> str:
-    parts = s.split('_')
-    return parts[0] + ''.join(p.capitalize() for p in parts[1:])
-
-ALLOWED_CATEGORIES = {
-    "전자제품/가전제품",
-    "식료품",
-    "의류/패션",
-    "스포츠/레저",
-    "뷰티",
-    "게임",
-    "도서/음반/문구",
-    "티켓/쿠폰",
-    "리빙/가구/생활",
-    "반려동물/취미",
-    ""
-}
-
-class CamelModel(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=to_camel,
-        populate_by_name=True,
-        from_attributes=True,
-        str_strip_whitespace=True
-    )
-
-class UserCreateIn(CamelModel):
+class UserCreateIn(BaseSchema):
     email: EmailStr
     nickname: str
     birth_date: date
@@ -41,10 +18,10 @@ class UserCreateIn(CamelModel):
             raise ValueError("nickname must be 1~30 chars")
         return v
 
-class MeUpdateIn(CamelModel):
+class MeUpdateIn(BaseSchema):
     nickname: Optional[str] = None
     introduction: Optional[str] = None
-    image_url: Optional[str] = None
+    image_url: Optional[HttpUrl] = None
     category: Optional[str] = None
 
     @field_validator("nickname")
@@ -63,13 +40,13 @@ class MeUpdateIn(CamelModel):
             raise ValueError("invalid category")
         return v
 
-class UserOut(CamelModel):
+class UserOut(BaseSchema):
     user_id: int
     email: EmailStr
     nickname: str
     birth_date: date
     introduction: Optional[str] = None
-    image_url: Optional[str] = None
+    image_url: Optional[HttpUrl] = None
     category: Optional[str] = None
     sell_count: int
     buy_count: int
