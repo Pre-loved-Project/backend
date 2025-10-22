@@ -1,3 +1,4 @@
+# app/routers/posting.py
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 
 from app.core.db import get_db
 from app.models.posting import Posting, PostingImage
+from app.models.favorite import Favorite
 from app.models.user import User
 from app.schemas.posting import (
     PostingCreateIn, PostingUpdateIn, PostingOut, PostingListItem, PageOut
@@ -15,9 +17,9 @@ from app.core.security import get_current_user
 
 router = APIRouter(prefix="/api/postings", tags=["postings"])
 
-# ---------- helpers ----------
 
-def to_posting_out(p: Posting, is_owner: Optional[bool] = None) -> PostingOut:
+# ---------- helpers ----------
+def to_posting_out(p: Posting, is_owner: Optional[bool] = None, is_favorite: Optional[bool] = None) -> PostingOut:
     def iso(dt):
         if not dt:
             return None
@@ -25,44 +27,42 @@ def to_posting_out(p: Posting, is_owner: Optional[bool] = None) -> PostingOut:
         return s.replace("+00:00", "Z")
 
     return PostingOut(
-        postingId=p.id,
-        sellerId=p.seller_id,
+        posting_id=p.id,
+        seller_id=p.seller_id,
         title=p.title,
         price=p.price,
         content=p.content,
         category=p.category,
-        viewCount=p.view_count,
-        likeCount=p.like_count,
-        chatCount=p.chat_count,
-        createdAt=iso(p.created_at),
-        updatedAt=iso(p.updated_at),
+        view_count=p.view_count,
+        like_count=p.like_count,
+        chat_count=p.chat_count,
+        created_at=p.created_at,
+        updated_at=p.updated_at,
         images=[img.url for img in (p.images or [])],
-        isOwner=is_owner,
+        is_owner=is_owner,
+        is_favorite=is_favorite,
     )
 
-def to_list_item(p: Posting) -> PostingListItem:
-    thumb = p.images[0].url if p.images else None
-    def iso(dt):
-        if not dt:
-            return None
-        return dt.isoformat().replace("+00:00", "Z")
 
+def to_list_item(p: Posting, is_favorite: bool = False) -> PostingListItem:
+    thumb = p.images[0].url if p.images else None
     return PostingListItem(
-        postingId=p.id,
-        sellerId=p.seller_id,
+        posting_id=p.id,
+        seller_id=p.seller_id,
         title=p.title,
         price=p.price,
         content=p.content,
         category=p.category,
-        createdAt=iso(p.created_at),
-        likeCount=p.like_count,
-        chatCount=p.chat_count,
-        viewCount=p.view_count,
+        created_at=p.created_at,
+        like_count=p.like_count,
+        chat_count=p.chat_count,
+        view_count=p.view_count,
         thumbnail=thumb,
+        is_favorite=is_favorite,
     )
+
 
 # ---------- 1) 게시물 생성 ----------
-
 @router.post("", response_model=PostingOut, status_code=200)
 def create_posting(
     body: PostingCreateIn,
@@ -70,7 +70,7 @@ def create_posting(
     me: User = Depends(get_current_user),
 ):
     p = Posting(
-        seller_id=me.user_id,  # ✅ 수정됨
+        seller_id=me.user_id,
         title=body.title,
         price=body.price,
         content=body.content,
@@ -84,10 +84,10 @@ def create_posting(
 
     db.commit()
     db.refresh(p)
-    return to_posting_out(p, is_owner=True)
+    return to_posting_out(p, is_owner=True, is_favorite=False)
+
 
 # ---------- 2) 전체 리스트 조회 ----------
-
 @router.get("", response_model=PageOut)
 def list_postings(
     page: int = Query(1, ge=1),
@@ -96,14 +96,16 @@ def list_postings(
     keyword: Optional[str] = None,
     category: Optional[str] = None,
     db: Session = Depends(get_db),
+    me: Optional[User] = Depends(get_current_user),
 ):
     q = select(Posting)
-
     if keyword:
         like = f"%{keyword}%"
         q = q.where(or_(Posting.title.ilike(like), Posting.content.ilike(like)))
     if category:
         q = q.where(Posting.category == category)
+    if me:
+        q = q.where(Posting.seller_id != me.user_id)  # ✅ 내 게시물 제외
 
     sort_map = {
         "latest": desc(Posting.created_at),
@@ -116,13 +118,21 @@ def list_postings(
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     rows = db.execute(q.offset((page - 1) * size).limit(size)).scalars().all()
 
-    return PageOut(
-        page=page, size=size, total=total,
-        data=[to_list_item(p) for p in rows]
-    )
+    data: List[PostingListItem] = []
+    for p in rows:
+        is_fav = False
+        if me:
+            fav = db.query(Favorite).filter(
+                Favorite.user_id == me.user_id,
+                Favorite.posting_id == p.id
+            ).first()
+            is_fav = bool(fav)
+        data.append(to_list_item(p, is_favorite=is_fav))
+
+    return PageOut(page=page, size=size, total=total, data=data)
+
 
 # ---------- 3) 내 게시물 ----------
-
 @router.get("/my", response_model=PageOut)
 def my_postings(
     status_filter: str = Query(..., alias="status", regex="^(selling|sold|purchased|favorite)$"),
@@ -131,7 +141,7 @@ def my_postings(
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    q = select(Posting).where(Posting.seller_id == me.user_id)  # ✅ 수정됨
+    q = select(Posting).where(Posting.seller_id == me.user_id)
 
     if status_filter == "selling":
         pass
@@ -143,10 +153,11 @@ def my_postings(
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     rows = db.execute(q.order_by(desc(Posting.created_at)).offset((page-1)*size).limit(size)).scalars().all()
 
-    return PageOut(page=page, size=size, total=total, data=[to_list_item(p) for p in rows])
+    data = [to_list_item(p, is_favorite=False) for p in rows]
+    return PageOut(page=page, size=size, total=total, data=data)
+
 
 # ---------- 4) 특정 유저의 게시물 ----------
-
 @router.get("/user/{user_id}", response_model=PageOut)
 def postings_by_user(
     user_id: int = Path(..., ge=1),
@@ -157,10 +168,11 @@ def postings_by_user(
     q = select(Posting).where(Posting.seller_id == user_id)
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     rows = db.execute(q.order_by(desc(Posting.created_at)).offset((page-1)*size).limit(size)).scalars().all()
-    return PageOut(page=page, size=size, total=total, data=[to_list_item(p) for p in rows])
+    data = [to_list_item(p, is_favorite=False) for p in rows]
+    return PageOut(page=page, size=size, total=total, data=data)
+
 
 # ---------- 5) 게시물 상세 ----------
-
 @router.get("/{posting_id}", response_model=PostingOut)
 def get_posting(
     posting_id: int = Path(..., ge=1),
@@ -171,16 +183,25 @@ def get_posting(
     if not p:
         raise HTTPException(status_code=404, detail="게시물 없음")
 
+    # ✅ 상세 조회 시에만 view_count 증가
     p.view_count += 1
-    db.add(p)
+    p.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(p)
 
-    is_owner = (me.user_id == p.seller_id) if me else False  # ✅ 수정됨
-    return to_posting_out(p, is_owner=is_owner)
+    is_owner = me and (me.user_id == p.seller_id)
+    is_fav = False
+    if me:
+        fav = db.query(Favorite).filter(
+            Favorite.user_id == me.user_id,
+            Favorite.posting_id == p.id
+        ).first()
+        is_fav = bool(fav)
+
+    return to_posting_out(p, is_owner=is_owner, is_favorite=is_fav)
+
 
 # ---------- 6) 게시물 수정 ----------
-
 @router.patch("/{posting_id}", response_model=PostingOut)
 def update_posting(
     posting_id: int,
@@ -191,13 +212,17 @@ def update_posting(
     p = db.get(Posting, posting_id)
     if not p:
         raise HTTPException(404, "게시물 없음")
-    if p.seller_id != me.user_id:  # ✅ 수정됨
+    if p.seller_id != me.user_id:
         raise HTTPException(403, "권한 없음")
 
-    if body.title is not None: p.title = body.title
-    if body.price is not None: p.price = body.price
-    if body.content is not None: p.content = body.content
-    if body.category is not None: p.category = body.category
+    if body.title is not None:
+        p.title = body.title
+    if body.price is not None:
+        p.price = body.price
+    if body.content is not None:
+        p.content = body.content
+    if body.category is not None:
+        p.category = body.category
 
     if body.images is not None:
         p.images.clear()
@@ -205,13 +230,12 @@ def update_posting(
         for url in body.images:
             db.add(PostingImage(posting_id=p.id, url=str(url)))
 
-    db.add(p)
     db.commit()
     db.refresh(p)
-    return to_posting_out(p, is_owner=True)
+    return to_posting_out(p, is_owner=True, is_favorite=False)
+
 
 # ---------- 7) 게시물 삭제 ----------
-
 @router.delete("/{posting_id}", status_code=200)
 def delete_posting(
     posting_id: int,
@@ -221,23 +245,25 @@ def delete_posting(
     p = db.get(Posting, posting_id)
     if not p:
         raise HTTPException(404, "게시물 없음")
-    if p.seller_id != me.user_id:  # ✅ 수정됨
+    if p.seller_id != me.user_id:
         raise HTTPException(403, "권한 없음")
 
     db.delete(p)
     db.commit()
     return {"postingId": posting_id}
 
-# ---------- 8) 즐겨찾기 토글 ----------
 
+# ---------- 8) 즐겨찾기 토글 ----------
 class FavoriteToggleIn(BaseModel):
     favorite: bool
+
 
 class FavoriteToggleOut(BaseModel):
     message: str
     postingId: int
     favorite: bool
     updatedAt: str
+
 
 @router.post("/{posting_id}/favorite", response_model=FavoriteToggleOut)
 def toggle_favorite(
@@ -250,12 +276,31 @@ def toggle_favorite(
     if not p:
         raise HTTPException(404, "게시물 없음")
 
-    now = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+    # ✅ DB 반영 (favorites 테이블 insert/delete)
+    fav = db.query(Favorite).filter(
+        Favorite.user_id == me.user_id,
+        Favorite.posting_id == p.id
+    ).first()
+
+    if body.favorite:
+        if not fav:
+            db.add(Favorite(user_id=me.user_id, posting_id=p.id))
+            p.like_count += 1
+    else:
+        if fav:
+            db.delete(fav)
+            if p.like_count > 0:
+                p.like_count -= 1
+
+    db.commit()
+    db.refresh(p)
+
     msg = "즐겨찾기가 등록되었습니다." if body.favorite else "즐겨찾기가 취소되었습니다."
+    now = datetime.utcnow().replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
     return FavoriteToggleOut(
         message=msg,
-        postingId=posting_id,
+        postingId=p.id,
         favorite=body.favorite,
         updatedAt=now,
     )

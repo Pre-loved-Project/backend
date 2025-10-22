@@ -10,12 +10,22 @@ Category = Literal[
     "식료품",
     "의류/패션",
     "스포츠/레저",
-    "뷰티",
+    "뷰티/화장품",
     "게임",
     "도서/음반/문구",
     "티켓/쿠폰",
     "리빙/가구/생활",
     "반려동물/취미",
+    "ELECTRONICS",
+    "FOOD",
+    "FASHION",
+    "SPORTS",
+    "BEAUTY",
+    "GAME",
+    "BOOK",
+    "TICKET",
+    "LIVING",
+    "PETS",
 ]
 
 class PostingImageOut(BaseSchema):
@@ -49,6 +59,7 @@ class PostingOut(BaseSchema):
     updated_at: datetime
     images: List[HttpUrl]
     is_owner: Optional[bool] = None
+    is_favorite: Optional[bool] = None  # ✅ 추가
 
 class PostingListItem(BaseSchema):
     posting_id: int
@@ -62,6 +73,7 @@ class PostingListItem(BaseSchema):
     chat_count: int
     view_count: int
     thumbnail: Optional[HttpUrl] = None
+    is_favorite: Optional[bool] = None  # ✅ 추가
 
 class PageOut(BaseSchema):
     page: int
