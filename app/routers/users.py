@@ -1,5 +1,6 @@
+# app/routers/users.py  (네가 보낸 파일 상단 import 라인 수정)
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Path  # ✅ Path 추가
 from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.models.user import User
@@ -64,3 +65,15 @@ def update_me(payload: MeUpdateIn, current: User = Depends(get_current_user), db
     db.commit()
     db.refresh(me)
     return me
+
+# ✅ 신규: 공개 유저 정보 조회 (토큰 불필요) - /api/users/{userId}
+@router.get("/{user_id}", response_model=UserOut, status_code=status.HTTP_200_OK)
+def get_user_by_id(
+    user_id: int = Path(..., ge=1),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if not user:
+        # 스펙의 404에 맞춰 메시지는 기존 스타일 유지
+        raise HTTPException(status_code=404, detail="USER_NOT_FOUND")
+    return user

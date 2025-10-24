@@ -1,4 +1,3 @@
-# app/routers/posting.py
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
 from sqlalchemy.orm import Session
@@ -87,7 +86,7 @@ def create_posting(
     return to_posting_out(p, is_owner=True, is_favorite=False)
 
 
-# ---------- 2) 전체 리스트 조회 ----------
+# ---------- 2) 전체 리스트 조회 (토큰 불필요) ----------
 @router.get("", response_model=PageOut)
 def list_postings(
     page: int = Query(1, ge=1),
@@ -96,7 +95,6 @@ def list_postings(
     keyword: Optional[str] = None,
     category: Optional[str] = None,
     db: Session = Depends(get_db),
-    me: Optional[User] = Depends(get_current_user),
 ):
     q = select(Posting)
     if keyword:
@@ -104,8 +102,6 @@ def list_postings(
         q = q.where(or_(Posting.title.ilike(like), Posting.content.ilike(like)))
     if category:
         q = q.where(Posting.category == category)
-    if me:
-        q = q.where(Posting.seller_id != me.user_id)  # ✅ 내 게시물 제외
 
     sort_map = {
         "latest": desc(Posting.created_at),
@@ -118,17 +114,7 @@ def list_postings(
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     rows = db.execute(q.offset((page - 1) * size).limit(size)).scalars().all()
 
-    data: List[PostingListItem] = []
-    for p in rows:
-        is_fav = False
-        if me:
-            fav = db.query(Favorite).filter(
-                Favorite.user_id == me.user_id,
-                Favorite.posting_id == p.id
-            ).first()
-            is_fav = bool(fav)
-        data.append(to_list_item(p, is_favorite=is_fav))
-
+    data: List[PostingListItem] = [to_list_item(p, is_favorite=False) for p in rows]
     return PageOut(page=page, size=size, total=total, data=data)
 
 
@@ -157,48 +143,41 @@ def my_postings(
     return PageOut(page=page, size=size, total=total, data=data)
 
 
-# ---------- 4) 특정 유저의 게시물 ----------
+# ---------- 4) 특정 유저의 게시물 (특정 글 제외 지원) ----------
 @router.get("/user/{user_id}", response_model=PageOut)
 def postings_by_user(
     user_id: int = Path(..., ge=1),
+    exclude_posting_id: Optional[int] = Query(None, alias="postingId"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     q = select(Posting).where(Posting.seller_id == user_id)
+    if exclude_posting_id is not None:
+        q = q.where(Posting.id != exclude_posting_id)
+
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     rows = db.execute(q.order_by(desc(Posting.created_at)).offset((page-1)*size).limit(size)).scalars().all()
     data = [to_list_item(p, is_favorite=False) for p in rows]
     return PageOut(page=page, size=size, total=total, data=data)
 
 
-# ---------- 5) 게시물 상세 ----------
+# ---------- 5) 게시물 상세 (토큰 불필요) ----------
 @router.get("/{posting_id}", response_model=PostingOut)
 def get_posting(
     posting_id: int = Path(..., ge=1),
     db: Session = Depends(get_db),
-    me: Optional[User] = Depends(get_current_user),
 ):
     p = db.get(Posting, posting_id)
     if not p:
         raise HTTPException(status_code=404, detail="게시물 없음")
 
-    # ✅ 상세 조회 시에만 view_count 증가
     p.view_count += 1
     p.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(p)
 
-    is_owner = me and (me.user_id == p.seller_id)
-    is_fav = False
-    if me:
-        fav = db.query(Favorite).filter(
-            Favorite.user_id == me.user_id,
-            Favorite.posting_id == p.id
-        ).first()
-        is_fav = bool(fav)
-
-    return to_posting_out(p, is_owner=is_owner, is_favorite=is_fav)
+    return to_posting_out(p, is_owner=False, is_favorite=False)
 
 
 # ---------- 6) 게시물 수정 ----------
@@ -263,6 +242,7 @@ class FavoriteToggleOut(BaseModel):
     postingId: int
     favorite: bool
     updatedAt: str
+    likeCount: int
 
 
 @router.post("/{posting_id}/favorite", response_model=FavoriteToggleOut)
@@ -276,7 +256,6 @@ def toggle_favorite(
     if not p:
         raise HTTPException(404, "게시물 없음")
 
-    # ✅ DB 반영 (favorites 테이블 insert/delete)
     fav = db.query(Favorite).filter(
         Favorite.user_id == me.user_id,
         Favorite.posting_id == p.id
@@ -289,8 +268,12 @@ def toggle_favorite(
     else:
         if fav:
             db.delete(fav)
-            if p.like_count > 0:
-                p.like_count -= 1
+            p.like_count = max(0, p.like_count - 1)
+
+    # 하드 동기화(집계 = 진실의 원천)
+    hard = db.query(func.count(Favorite.user_id)).filter(Favorite.posting_id == p.id).scalar()
+    if p.like_count != hard:
+        p.like_count = hard
 
     db.commit()
     db.refresh(p)
@@ -303,4 +286,5 @@ def toggle_favorite(
         postingId=p.id,
         favorite=body.favorite,
         updatedAt=now,
+        likeCount=p.like_count,
     )
