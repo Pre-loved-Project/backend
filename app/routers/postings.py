@@ -12,7 +12,7 @@ from app.models.user import User
 from app.schemas.posting import (
     PostingCreateIn, PostingUpdateIn, PostingOut, PostingListItem, PageOut
 )
-from app.core.security import get_current_user
+from app.core.auth import get_current_user, get_current_user_optional
 
 router = APIRouter(prefix="/api/postings", tags=["postings"])
 
@@ -95,13 +95,20 @@ def list_postings(
     keyword: Optional[str] = None,
     category: Optional[str] = None,
     db: Session = Depends(get_db),
+    me: Optional[User] = Depends(get_current_user_optional),   # ✅ optional
 ):
     q = select(Posting)
+
+    # 검색/카테고리
     if keyword:
         like = f"%{keyword}%"
         q = q.where(or_(Posting.title.ilike(like), Posting.content.ilike(like)))
     if category:
         q = q.where(Posting.category == category)
+
+    # ✅ 토큰 있으면 내 게시물 제외
+    if me:
+        q = q.where(Posting.seller_id != me.user_id)
 
     sort_map = {
         "latest": desc(Posting.created_at),
@@ -114,8 +121,22 @@ def list_postings(
     total = db.scalar(select(func.count()).select_from(q.subquery()))
     rows = db.execute(q.offset((page - 1) * size).limit(size)).scalars().all()
 
-    data: List[PostingListItem] = [to_list_item(p, is_favorite=False) for p in rows]
+    # (옵션) 토큰 있으면 is_favorite 계산 — 필요 없으면 이 블록 삭제해도 됨
+    fav_ids: set[int] = set()
+    if me and rows:
+        post_ids = [p.id for p in rows]
+        fav_ids = set(
+            db.execute(
+                select(Favorite.posting_id)
+                .where(Favorite.user_id == me.user_id, Favorite.posting_id.in_(post_ids))
+            ).scalars().all()
+        )
+
+    data: List[PostingListItem] = [
+        to_list_item(p, is_favorite=(p.id in fav_ids if me else False)) for p in rows
+    ]
     return PageOut(page=page, size=size, total=total, data=data)
+
 
 
 # ---------- 3) 내 게시물 ----------
@@ -163,21 +184,36 @@ def postings_by_user(
 
 
 # ---------- 5) 게시물 상세 (토큰 불필요) ----------
+
+
+# ---------- 5) 게시물 상세 (토큰 optional) ----------
 @router.get("/{posting_id}", response_model=PostingOut)
 def get_posting(
     posting_id: int = Path(..., ge=1),
     db: Session = Depends(get_db),
+    me: Optional[User] = Depends(get_current_user_optional),  # ✅ optional
 ):
     p = db.get(Posting, posting_id)
     if not p:
         raise HTTPException(status_code=404, detail="게시물 없음")
 
+    # 조회수 증가
     p.view_count += 1
     p.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(p)
 
-    return to_posting_out(p, is_owner=False, is_favorite=False)
+    # ✅ 토큰 있으면 is_owner / is_favorite 계산
+    is_owner = bool(me and p.seller_id == me.user_id)
+    is_favorite = False
+    if me and not is_owner:
+        is_favorite = db.query(
+            db.query(Favorite)
+            .filter(Favorite.user_id == me.user_id, Favorite.posting_id == p.id)
+            .exists()
+        ).scalar()
+
+    return to_posting_out(p, is_owner=is_owner, is_favorite=is_favorite)
 
 
 # ---------- 6) 게시물 수정 ----------
