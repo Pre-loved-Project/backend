@@ -280,7 +280,6 @@ class FavoriteToggleOut(BaseModel):
     updatedAt: str
     likeCount: int
 
-
 @router.post("/{posting_id}/favorite", response_model=FavoriteToggleOut)
 def toggle_favorite(
     posting_id: int,
@@ -297,17 +296,24 @@ def toggle_favorite(
         Favorite.posting_id == p.id
     ).first()
 
+    # 변경 수행
     if body.favorite:
         if not fav:
             db.add(Favorite(user_id=me.user_id, posting_id=p.id))
+            # (선택) 즉시 증가시키되 어차피 아래 하드동기화로 확정됨
             p.like_count += 1
     else:
         if fav:
             db.delete(fav)
             p.like_count = max(0, p.like_count - 1)
 
-    # 하드 동기화(집계 = 진실의 원천)
-    hard = db.query(func.count(Favorite.user_id)).filter(Favorite.posting_id == p.id).scalar()
+    # ✅ 여기 추가: 세션에 쌓인 변경 내용을 DB에 flush
+    db.flush()
+
+    # ✅ 하드 동기화 (이제 방금 변경이 카운트에 반영됨)
+    hard = db.query(func.count(Favorite.user_id))\
+             .filter(Favorite.posting_id == p.id)\
+             .scalar()
     if p.like_count != hard:
         p.like_count = hard
 
