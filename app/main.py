@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.core.db import Base, engine
 from app.core.config import settings
+from app.routers import chat_ws 
 
 app = FastAPI(title="Pre-loved API")
 
@@ -66,6 +67,7 @@ routers = [
     image_router,
     chat_rest.router,
     chat.router,
+    chat_ws.router,
 ]
 
 for r in routers:
