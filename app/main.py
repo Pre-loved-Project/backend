@@ -54,6 +54,7 @@ from app.routers.favorites import router as favorites_router
 from app.routers.predict import router as predict_router
 from app.routers.image import router as image_router
 from app.routers import chat
+from app.routers import chat_rest
 
 routers = [
     health_router,
@@ -63,6 +64,7 @@ routers = [
     favorites_router,
     predict_router,
     image_router,
+    chat_rest.router,
     chat.router,
 ]
 

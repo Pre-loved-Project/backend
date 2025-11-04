@@ -5,7 +5,12 @@ from app.core.db import Base
 class ChatRoom(Base):
     __tablename__ = "chat_rooms"
     id = Column(Integer, primary_key=True, index=True)
+    posting_id = Column(Integer, ForeignKey("postings.id", ondelete="CASCADE"), nullable=False, index=True)
+    seller_id = Column(Integer, ForeignKey("users.userId", ondelete="CASCADE"), nullable=False, index=True)
+    buyer_id = Column(Integer, ForeignKey("users.userId", ondelete="CASCADE"), nullable=False, index=True)
+    status = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    __table_args__ = (UniqueConstraint("posting_id", "buyer_id", name="uq_room_posting_buyer"),)
     messages = relationship("ChatMessage", back_populates="room", cascade="all, delete-orphan")
 
 class ChatMessage(Base):
@@ -17,7 +22,6 @@ class ChatMessage(Base):
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     room = relationship("ChatRoom", back_populates="messages")
-    reads = relationship("ChatRead", back_populates="message", cascade="all, delete-orphan")
 
 class ChatRead(Base):
     __tablename__ = "chat_reads"
@@ -26,4 +30,3 @@ class ChatRead(Base):
     user_id = Column(Integer, ForeignKey("users.userId", ondelete="CASCADE"), nullable=False, index=True)
     read_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     __table_args__ = (UniqueConstraint("message_id", "user_id", name="uq_message_user"),)
-    message = relationship("ChatMessage", back_populates="reads")
