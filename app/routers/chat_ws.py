@@ -6,7 +6,6 @@ from jose import jwt, JWTError
 from app.core.db import get_db
 from app.core.config import settings
 from app.models.chat import ChatRoom, ChatMessage, ChatRead
-# 너가 만든 스키마 경로에 맞춰서 import (schemas 폴더 쓰는 프로젝트면 아래로)
 from app.schemas.chat import (
     JoinRoomIn,
     SendTextIn,
@@ -23,6 +22,7 @@ router = APIRouter()
 # 방별 연결 관리
 connections: Dict[int, Set[WebSocket]] = {}
 
+
 def decode_user_id(token: Optional[str]) -> Optional[int]:
     if not token:
         return None
@@ -33,18 +33,23 @@ def decode_user_id(token: Optional[str]) -> Optional[int]:
     except JWTError:
         return None
 
-async def broadcast(chat_id: int, data: dict):
+
+# ✅ 수정된 broadcast (exclude 매개변수 추가)
+async def broadcast(chat_id: int, data: dict, exclude: Optional[WebSocket] = None):
     conns = connections.get(chat_id)
     if not conns:
         return
     dead = []
-    for ws in conns:
+    for ws in list(conns):
+        if exclude is not None and ws is exclude:
+            continue  # 보낸 본인에게는 전송 안 함
         try:
             await ws.send_json(data)
         except Exception:
             dead.append(ws)
     for d in dead:
         conns.discard(d)
+
 
 @router.websocket("/ws/chat/{chat_id}")
 async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depends(get_db)):
@@ -92,7 +97,7 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                 db.commit()
                 db.refresh(msg)
 
-                # 브로드캐스트
+                # 브로드캐스트 (보낸 본인 제외)
                 out = ReceiveMessageOut(
                     messageId=msg.id,
                     senderId=user_id,
@@ -100,7 +105,7 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                     content=msg.content,
                     createdAt=msg.created_at.astimezone().isoformat(),
                 )
-                await broadcast(chat_id, out.dict())
+                await broadcast(chat_id, out.dict(), exclude=websocket)
 
             elif ev == "read_message":
                 parsed = ReadMessageIn(**data)
@@ -112,7 +117,8 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                 if not exists:
                     db.add(ChatRead(message_id=parsed.messageId, user_id=user_id))
                     db.commit()
-                await broadcast(chat_id, SystemMessageOut(type="read", message=str(parsed.messageId)).dict())
+                # 읽음 브로드캐스트 (보낸 본인 제외)
+                await broadcast(chat_id, SystemMessageOut(type="read", message=str(parsed.messageId)).dict(), exclude=websocket)
 
             elif ev == "leave_room":
                 _ = LeaveRoomIn(**data)
