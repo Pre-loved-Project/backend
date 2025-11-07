@@ -10,11 +10,16 @@ app = FastAPI(title="Pre-loved API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://chalddack.vercel.app",  # ✅ 프론트 배포 주소 추가
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 from app.models.user import User
 from app.models.posting import Posting, PostingImage
