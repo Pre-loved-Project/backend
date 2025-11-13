@@ -88,6 +88,6 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
 
 @router.post("/logout")
 def logout(response: Response):
-    response.delete_cookie("accessToken", path="/")
-    response.delete_cookie("refreshToken", path="/")
+    response.delete_cookie("accessToken", path="/", domain="chalddack.azurewebsites.net")
+    response.delete_cookie("refreshToken", path="/", domain="chalddack.azurewebsites.net")
     return {"message": "로그아웃 성공"}
