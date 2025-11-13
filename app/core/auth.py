@@ -86,8 +86,8 @@ def get_current_user(
         key="accessToken",
         value=new_access,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=True,
+        samesite="none",
         max_age=15 * 60,
         path="/",
     )
