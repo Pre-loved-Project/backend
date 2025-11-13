@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError, ExpiredSignatureError
 from sqlalchemy.orm import Session
@@ -8,6 +8,12 @@ from app.core.db import get_db
 from app.models.user import User
 
 from typing import Optional
+
+from app.core.security import (
+    create_access_token,
+    decode_refresh_token,
+)
+
 
 print("### IMPORT auth.py OK")
 
@@ -25,68 +31,85 @@ def _user_pk_col():
     else:
         raise AttributeError("User 모델에 PK 컬럼(user_id, userId, id)이 없습니다.")
 
+def get_current_user(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> User:
+    access = request.cookies.get("accessToken")
+    refresh = request.cookies.get("refreshToken")
+    # ------------------------------
+    # 1) accessToken 검증
+    # ------------------------------
+
+    if access:
+        try:
+            payload = jwt.decode(
+                access, settings.JWT_ACCESS_SECRET, algorithms=[settings.JWT_ALG]
+            )
+            sub = payload.get("sub")
+            if not sub:
+                raise JWTError("missing sub")
+            
+            # ✅ user_id 기준으로 사용자 조회
+            pk_col = _user_pk_col()
+            user = db.query(User).filter(pk_col == int(sub)).first()
+            if user:
+                return user
+        except ExpiredSignatureError:
+            pass #refresh 검증 로직으로 전환
+        except JWTError:
+            pass #refresh 검증 로직으로 전환
+
+    # ------------------------------
+    # 2) refreshToken 검증
+    # ------------------------------
+    if not refresh:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    
+    try:
+        payload = decode_refresh_token(refresh)
+        sub = payload.get("sub")
+        if not sub:
+            raise JWTError("missing_sub")
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="refresh_expired")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="invalid_refresh_token")
+
+    # ------------------------------
+    # 3) refresh 통과 → accessToken 재발급
+    # ------------------------------
+    new_access = create_access_token(sub=sub)
+
+    response.set_cookie(
+        key="accessToken",
+        value=new_access,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=15 * 60,
+        path="/",
+    )
+
+    # ------------------------------
+    # 4) user 조회 후 반환
+    # ------------------------------
+    pk_col = _user_pk_col()
+    user = db.query(User).filter(pk_col == int(sub)).first()
+
+    if not user:
+        raise HTTPException(status_code=401, detail="invalid_token")
+
+    return user
+
 def get_current_user_optional(
-    creds: Optional[HTTPAuthorizationCredentials] = Depends(bearer),
+    request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> Optional[User]:
     """토큰이 없거나, 유효하지 않으면 None을 반환 (401 내지 않음)."""
-    if not creds or (creds.scheme or "").lower() != "bearer":
-        return None
-
-    token = creds.credentials
     try:
-        payload = jwt.decode(token, settings.JWT_ACCESS_SECRET, algorithms=[settings.JWT_ALG])
-        sub = payload.get("sub")
-        if not sub:
-            return None
-    except (ExpiredSignatureError, JWTError):
+        return get_current_user(request, response, db)
+    except HTTPException:
         return None
-
-    pk_col = _user_pk_col()
-    return db.query(User).filter(pk_col == int(sub)).first()
-
-def get_current_user(
-    creds: HTTPAuthorizationCredentials = Depends(bearer),
-    db: Session = Depends(get_db),
-) -> User:
-    """JWT 토큰 인증 후 현재 사용자 객체 반환"""
-    if not creds or (creds.scheme or "").lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid_token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    token = creds.credentials
-    try:
-        # ✅ ACCESS 토큰 검증
-        payload = jwt.decode(
-            token, settings.JWT_ACCESS_SECRET, algorithms=[settings.JWT_ALG]
-        )
-        sub = payload.get("sub")
-        if not sub:
-            raise JWTError("missing sub")
-    except ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="token_expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid_token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # ✅ user_id 기준으로 사용자 조회
-    pk_col = _user_pk_col()
-    user = db.query(User).filter(pk_col == int(sub)).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="invalid_token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    return user

@@ -62,6 +62,16 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
 
     access = create_access_token(sub=uid)
     refresh = create_refresh_token(sub=uid)
+    
+    response.set_cookie(
+        key="accessToken",
+        value=access,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=15 * 60,
+        path="/",
+    )
 
     response.set_cookie(
         key="refreshToken",
@@ -76,39 +86,8 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
     return {"accessToken": access}
 
 
-@router.post("/refresh", response_model=TokenOut, status_code=status.HTTP_200_OK)
-def refresh(request: Request):
-    token = request.cookies.get("refreshToken")
-    if not token:
-        raise HTTPException(status_code=401, detail="no_refresh_token")
-
-    try:
-        payload = decode_refresh_token(token)
-        sub = payload.get("sub")
-        if not sub:
-            raise HTTPException(status_code=401, detail="invalid_token_payload")
-    except ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="refresh_token_expired")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="invalid_refresh_token")
-
-    access = create_access_token(sub=sub)
-    return {"accessToken": access}
-
-
-@router.post("/logout", status_code=status.HTTP_200_OK)
-def logout(request: Request, response: Response):
-    auth = request.headers.get("Authorization")
-    if not auth or not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="missing_bearer_token")
-
-    token = auth.split(" ", 1)[1].strip()
-    try:
-        decode_access_token(token)
-    except ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="access_token_expired")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="invalid_access_token")
-
-    response.delete_cookie(key="refreshToken", path="/")
+@router.post("/logout")
+def logout(response: Response):
+    response.delete_cookie("accessToken", path="/")
+    response.delete_cookie("refreshToken", path="/")
     return {"message": "로그아웃 성공"}
