@@ -67,8 +67,8 @@ def login(payload: LoginIn, response: Response, db: Session = Depends(get_db)):
         key="refreshToken",
         value=refresh,
         httponly=True,
-        secure=False,
-        samesite="lax",
+        secure=True,
+        samesite="none",
         max_age=30 * 24 * 60 * 60,
         path="/",
     )
