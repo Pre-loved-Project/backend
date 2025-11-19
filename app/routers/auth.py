@@ -110,5 +110,5 @@ def logout(request: Request, response: Response):
     except JWTError:
         raise HTTPException(status_code=401, detail="invalid_access_token")
 
-    response.delete_cookie(key="refreshToken", path="/")
+    response.delete_cookie(key="refreshToken",httponly=True, secure=True, samesite="none", path="/")
     return {"message": "로그아웃 성공"}
