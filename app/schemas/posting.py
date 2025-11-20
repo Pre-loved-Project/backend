@@ -4,6 +4,8 @@ from typing import List, Literal, Optional
 from pydantic import HttpUrl, Field
 from .base import BaseSchema  # ✅ camelCase 자동 변환 베이스
 
+
+PostingStatus = Literal["SELLING", "RESERVED", "SOLD"]
 # ✅ 먼저 정의: 카테고리 리터럴 (그대로 사용)
 Category = Literal[
     "전자제품/가전제품",
@@ -52,6 +54,7 @@ class PostingOut(BaseSchema):
     price: int
     content: str
     category: Category
+    status: PostingStatus   
     view_count: int
     like_count: int
     chat_count: int

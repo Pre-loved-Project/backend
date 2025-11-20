@@ -10,7 +10,6 @@ from app.models.posting import Posting, PostingImage
 from app.models.favorite import Favorite
 from app.models.user import User
 from app.models.chat import ChatRoom
-
 from app.schemas.posting import (
     PostingCreateIn, PostingUpdateIn, PostingOut, PostingListItem, PageOut, ChatExistOut
 )
@@ -34,6 +33,7 @@ def to_posting_out(p: Posting, is_owner: Optional[bool] = None, is_favorite: Opt
         price=p.price,
         content=p.content,
         category=p.category,
+        status=p.status,
         view_count=p.view_count,
         like_count=p.like_count,
         chat_count=p.chat_count,
