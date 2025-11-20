@@ -80,3 +80,7 @@ class PageOut(BaseSchema):
     size: int
     total: int
     data: List[PostingListItem]
+
+class ChatExistOut(BaseSchema):
+    isExist: bool
+    chatId: Optional[int]

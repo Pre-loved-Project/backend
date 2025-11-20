@@ -9,8 +9,10 @@ from app.core.db import get_db
 from app.models.posting import Posting, PostingImage
 from app.models.favorite import Favorite
 from app.models.user import User
+from app.models.chat import ChatRoom
+
 from app.schemas.posting import (
-    PostingCreateIn, PostingUpdateIn, PostingOut, PostingListItem, PageOut
+    PostingCreateIn, PostingUpdateIn, PostingOut, PostingListItem, PageOut, ChatExistOut
 )
 from app.core.auth import get_current_user, get_current_user_optional
 
@@ -330,3 +332,33 @@ def toggle_favorite(
         updatedAt=now,
         likeCount=p.like_count,
     )
+
+@router.get("/{posting_id}/chat", response_model=ChatExistOut)
+def check_chat_exist(
+    posting_id: int = Path(..., description="대상 게시글 ID"),
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    """
+    해당 게시물에 대해 현재 로그인한 사용자가 가진 채팅방이 존재하는지 확인
+    """
+
+    # 1) 게시글 존재 여부 확인 (없으면 404)
+    posting = db.query(Posting).filter(Posting.id == posting_id).first()
+    if not posting:
+        raise HTTPException(status_code=404, detail="posting_not_found")  # 명세 404
+
+    # 2) 현재 로그인한 유저(me)가 이 게시물에 대해 만든 채팅방이 있는지 확인
+    room = (
+        db.query(ChatRoom)
+        .filter(
+            ChatRoom.posting_id == posting_id,
+            ChatRoom.buyer_id == me.user_id,  # create_chat에서 쓰던 조건과 동일
+        )
+        .first()
+    )
+
+    if room:
+        return ChatExistOut(isExist=True, chatId=room.id)
+    else:
+        return ChatExistOut(isExist=False, chatId=None)

@@ -99,16 +99,16 @@ class MessagesOut(BaseModel):
 class UpdateDealStatusIn(BaseModel):
     status: str  # "RESERVED", "COMPLETED", "SOLD" 등 프로젝트에서 사용하는 값
 
-
 class DealStatusOut(BaseModel):
     chatId: int
     postingId: int
     sellerId: int
     buyerId: int
-    prevStatus: Optional[str]
-    status: str
+    dealStatus: str   # 채팅(거래) 상태: ACTIVE / RESERVED / COMPLETED
+    postStatus: str   # 게시글 상태: SELLING / RESERVED / SOLD
     changedBy: int
-    changedAt: str  # ISO 8601 문자열
+    changedAt: str
+
 
 @router.get("/{chat_id}", response_model=MessagesOut)
 def list_messages(chat_id: int = Path(...), cursor: Optional[int] = Query(None), size: Optional[int] = Query(20),
@@ -146,42 +146,80 @@ def update_deal_status(
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    # 1) 채팅방 존재 여부 확인
+    # 1) 채팅방 조회
     room = db.query(ChatRoom).filter(ChatRoom.id == chat_id).first()
     if not room:
-        raise HTTPException(status_code=404, detail="chat_not_found")  # 404
+        raise HTTPException(status_code=404, detail="chat_not_found")
 
-    # 2) 접근 권한 확인 (해당 채팅 참여자만)
+    # 2) 권한 체크 (buyer 또는 seller만)
     if me.user_id not in (room.buyer_id, room.seller_id):
-        raise HTTPException(status_code=403, detail="forbidden")  # 403
+        raise HTTPException(status_code=403, detail="forbidden")
 
-    # 3) status 값 유효성 체크 (필요한 값만 추가해서 사용)
-    allowed_status = {"RESERVED", "COMPLETED", "SOLD", "CANCELED"}
-    if body.status not in allowed_status:
-        raise HTTPException(status_code=400, detail="invalid_status")  # 400
+    # 3) 허용 status만
+    allowed = {"ACTIVE", "RESERVED", "COMPLETED"}
+    if body.status not in allowed:
+        raise HTTPException(status_code=400, detail="invalid_status")
 
-    prev_status = room.status
+    # 이전 상태 (DB에 NULL이면 ACTIVE로 간주)
+    prev_status = room.status or "ACTIVE"
     new_status = body.status
 
-    # 이미 같은 상태면 에러로 볼지, 그냥 통과시킬지는 팀 규칙에 맞게
+    # COMPLETED에서 다른 상태로는 못 돌아가게 막기 (원하면 유지)
+    if prev_status == "COMPLETED" and new_status != "COMPLETED":
+        raise HTTPException(status_code=400, detail="completed_cannot_change")
+
+    # 동일 상태면 막기
     if prev_status == new_status:
         raise HTTPException(status_code=400, detail="same_status")
 
-    # 4) 상태 변경
+    # 4) 게시글 조회
+    posting = db.query(Posting).filter(Posting.id == room.posting_id).first()
+    if not posting:
+        raise HTTPException(status_code=404, detail="posting_not_found")
+
+    # 5) posting.status 연동
+    # ACTIVE -> RESERVED  : SELLING -> RESERVED
+    if prev_status == "ACTIVE" and new_status == "RESERVED":
+        if posting.status == "SELLING":
+            posting.status = "RESERVED"
+
+    # RESERVED -> ACTIVE  : RESERVED -> SELLING
+    elif prev_status == "RESERVED" and new_status == "ACTIVE":
+        if posting.status == "RESERVED":
+            posting.status = "SELLING"
+
+    # RESERVED -> COMPLETED : RESERVED -> SOLD (+ 유저 카운트 반영)
+    elif prev_status == "RESERVED" and new_status == "COMPLETED":
+        if posting.status == "RESERVED":
+            posting.status = "SOLD"
+
+        # seller / buyer 카운트 업데이트
+        seller = db.query(User).filter(User.user_id == room.seller_id).first()
+        buyer = db.query(User).filter(User.user_id == room.buyer_id).first()
+
+        if seller is not None:
+            seller.sell_count = (seller.sell_count or 0) + 1
+        if buyer is not None:
+            buyer.buy_count = (buyer.buy_count or 0) + 1
+
+    # 6) 채팅방 상태 변경
     room.status = new_status
+
+    changed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
     db.commit()
     db.refresh(room)
+    db.refresh(posting)
 
-    changed_at = datetime.now(timezone.utc).isoformat()
-
-    # 5) 응답 생성
     return DealStatusOut(
         chatId=room.id,
         postingId=room.posting_id,
         sellerId=room.seller_id,
         buyerId=room.buyer_id,
-        prevStatus=prev_status,
-        status=new_status,
+        dealStatus=new_status,
+        postStatus=posting.status,
         changedBy=me.user_id,
         changedAt=changed_at,
     )
+
+

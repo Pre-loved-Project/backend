@@ -27,7 +27,8 @@ class Posting(Base):
     images = relationship("PostingImage", cascade="all, delete-orphan", back_populates="posting", lazy="selectin")
     # (선택) 판매자 관계
     # seller = relationship("User", backref="postings")
-    
+    status = Column(String(20), nullable=False, default="SELLING")
+
 
 class PostingImage(Base):
     __tablename__ = "posting_images"
