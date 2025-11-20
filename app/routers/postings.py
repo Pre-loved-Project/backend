@@ -42,6 +42,7 @@ def to_posting_out(p: Posting, is_owner: Optional[bool] = None, is_favorite: Opt
         images=[img.url for img in (p.images or [])],
         is_owner=is_owner,
         is_favorite=is_favorite,
+        status=p.status,
     )
 
 
@@ -60,6 +61,7 @@ def to_list_item(p: Posting, is_favorite: bool = False) -> PostingListItem:
         view_count=p.view_count,
         thumbnail=thumb,
         is_favorite=is_favorite,
+        status=p.status,
     )
 
 
