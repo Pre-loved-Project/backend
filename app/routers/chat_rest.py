@@ -1,8 +1,9 @@
+#app/routers/chat_rest.py
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from datetime import timezone
+from datetime import datetime, timezone
 from app.core.db import get_db
 from app.core.auth import get_current_user
 from app.models.user import User
@@ -95,6 +96,20 @@ class MessagesOut(BaseModel):
     hasNext: bool
     nextCursor: Optional[int]
 
+class UpdateDealStatusIn(BaseModel):
+    status: str  # "RESERVED", "COMPLETED", "SOLD" 등 프로젝트에서 사용하는 값
+
+
+class DealStatusOut(BaseModel):
+    chatId: int
+    postingId: int
+    sellerId: int
+    buyerId: int
+    prevStatus: Optional[str]
+    status: str
+    changedBy: int
+    changedAt: str  # ISO 8601 문자열
+
 @router.get("/{chat_id}", response_model=MessagesOut)
 def list_messages(chat_id: int = Path(...), cursor: Optional[int] = Query(None), size: Optional[int] = Query(20),
                   db: Session = Depends(get_db), me: User = Depends(get_current_user)):
@@ -123,3 +138,50 @@ def list_messages(chat_id: int = Path(...), cursor: Optional[int] = Query(None),
         ))
     next_cursor = rows[-1].id if rows else None
     return MessagesOut(messages=messages, hasNext=has_next, nextCursor=next_cursor)
+
+@router.patch("/{chat_id}/deal", response_model=DealStatusOut)
+def update_deal_status(
+    chat_id: int = Path(..., description="대상 채팅방 ID"),
+    body: UpdateDealStatusIn = ...,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    # 1) 채팅방 존재 여부 확인
+    room = db.query(ChatRoom).filter(ChatRoom.id == chat_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="chat_not_found")  # 404
+
+    # 2) 접근 권한 확인 (해당 채팅 참여자만)
+    if me.user_id not in (room.buyer_id, room.seller_id):
+        raise HTTPException(status_code=403, detail="forbidden")  # 403
+
+    # 3) status 값 유효성 체크 (필요한 값만 추가해서 사용)
+    allowed_status = {"RESERVED", "COMPLETED", "SOLD", "CANCELED"}
+    if body.status not in allowed_status:
+        raise HTTPException(status_code=400, detail="invalid_status")  # 400
+
+    prev_status = room.status
+    new_status = body.status
+
+    # 이미 같은 상태면 에러로 볼지, 그냥 통과시킬지는 팀 규칙에 맞게
+    if prev_status == new_status:
+        raise HTTPException(status_code=400, detail="same_status")
+
+    # 4) 상태 변경
+    room.status = new_status
+    db.commit()
+    db.refresh(room)
+
+    changed_at = datetime.now(timezone.utc).isoformat()
+
+    # 5) 응답 생성
+    return DealStatusOut(
+        chatId=room.id,
+        postingId=room.posting_id,
+        sellerId=room.seller_id,
+        buyerId=room.buyer_id,
+        prevStatus=prev_status,
+        status=new_status,
+        changedBy=me.user_id,
+        changedAt=changed_at,
+    )
