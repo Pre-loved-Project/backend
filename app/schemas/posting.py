@@ -60,6 +60,7 @@ class PostingOut(BaseSchema):
     images: List[HttpUrl]
     is_owner: Optional[bool] = None
     is_favorite: Optional[bool] = None  # ✅ 추가
+    status: str
 
 class PostingListItem(BaseSchema):
     posting_id: int
@@ -74,6 +75,7 @@ class PostingListItem(BaseSchema):
     view_count: int
     thumbnail: Optional[HttpUrl] = None
     is_favorite: Optional[bool] = None  # ✅ 추가
+    status: str
 
 class PageOut(BaseSchema):
     page: int
