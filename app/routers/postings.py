@@ -33,7 +33,6 @@ def to_posting_out(p: Posting, is_owner: Optional[bool] = None, is_favorite: Opt
         price=p.price,
         content=p.content,
         category=p.category,
-        status=p.status,
         view_count=p.view_count,
         like_count=p.like_count,
         chat_count=p.chat_count,
