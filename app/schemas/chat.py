@@ -52,7 +52,6 @@ class ErrorOut(BaseModel):
 
 
 # ===== 채팅 목록 조회 응답 =====
-
 class ChatLastMessageOut(BaseModel):
     messageId: int
     isMine: bool
@@ -67,12 +66,13 @@ class ChatListItemOut(BaseModel):
     postingId: int
     postingTitle: str
     role: Literal["buyer", "seller"]
-    lastMessage: Optional[ChatLastMessageOut] = None
+    lastMessage: Optional[ChatLastMessageOut] = None   # ← 이걸로!
     createdAt: datetime
     status: Literal["ACTIVE", "RESERVED", "COMPLETED"]
     otherId: int
     otherNickname: str
     otherImageUrl: Optional[str] = None
+
 
 
 class ChatListOut(BaseModel):
