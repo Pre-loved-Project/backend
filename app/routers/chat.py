@@ -104,13 +104,16 @@ def get_my_chats(
             other_id = room.buyer_id
 
         other = db.query(User).get(other_id)
-
+        
         last_msg: ChatMessage | None = (
-            db.query(ChatMessage)
-            .filter(ChatMessage.chat_id == room.id)
-            .order_by(desc(ChatMessage.id))
-            .first()
-        )
+                    db.query(ChatMessage)
+                    .filter(
+                        ChatMessage.chat_id == room.id,
+                        ChatMessage.type.in_(["text", "image"]),  # ← 요 한 줄 추가
+                    )
+                    .order_by(desc(ChatMessage.id))
+                    .first()
+                )
 
         last_msg_out: Optional[ChatLastMessageOut] = None
 
