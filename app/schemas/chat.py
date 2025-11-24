@@ -36,7 +36,8 @@ class ReceiveMessageOut(BaseModel):
     senderId: int
     type: Literal["text", "image"]
     content: str
-    createdAt: datetime  # ← datetime 으로 맞추는 걸 추천
+    createdAt: str
+
 
 
 class SystemMessageOut(BaseModel):

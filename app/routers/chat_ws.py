@@ -1,5 +1,6 @@
 # app/routers/chat_ws.py
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from typing import Dict, Set, Optional
 from jose import jwt, JWTError
@@ -34,7 +35,6 @@ def decode_user_id(token: Optional[str]) -> Optional[int]:
         return None
 
 
-# ✅ 수정된 broadcast (exclude 매개변수 추가)
 async def broadcast(chat_id: int, data: dict, exclude: Optional[WebSocket] = None):
     conns = connections.get(chat_id)
     if not conns:
@@ -44,11 +44,18 @@ async def broadcast(chat_id: int, data: dict, exclude: Optional[WebSocket] = Non
         if exclude is not None and ws is exclude:
             continue  # 보낸 본인에게는 전송 안 함
         try:
-            await ws.send_json(data)
-        except Exception:
+            # ✅ datetime, Pydantic 등 전부 JSON 가능하게 변환
+            encoded = jsonable_encoder(data)
+            await ws.send_json(encoded)
+        except Exception as e:
+            print("send_json ERROR:", repr(e))
+            print("ERROR TYPE:", type(e))
+            print("ERROR DETAIL:", str(e))
+            print("send_json 중 오류 발생")
             dead.append(ws)
     for d in dead:
         conns.discard(d)
+
 
 
 @router.websocket("/ws/chat/{chat_id}")
@@ -103,7 +110,7 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                     senderId=user_id,
                     type=msg.type,
                     content=msg.content,
-                    createdAt=msg.created_at.astimezone().isoformat(),
+                    createdAt=msg.created_at.astimezone().isoformat(),  # ← str
                 )
                 await broadcast(chat_id, out.dict(), exclude=websocket)
 
@@ -134,7 +141,7 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
         conns = connections.get(chat_id)
         if conns and websocket in conns:
             conns.discard(websocket)
-            
+
 # ---------- 거래 상태 변경 브로드캐스트 ----------
 # REST API(update_deal_status)에서 호출함
 async def broadcast_deal_update(chat_id: int, deal_status: str, post_status: str, system_message: str):
