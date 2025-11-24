@@ -140,8 +140,6 @@ def list_postings(
     ]
     return PageOut(page=page, size=size, total=total, data=data)
 
-
-
 # ---------- 3) 내 게시물 ----------
 @router.get("/my", response_model=PageOut)
 def my_postings(
@@ -151,20 +149,81 @@ def my_postings(
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    q = select(Posting).where(Posting.seller_id == me.user_id)
-
+    # ----- 판매중 / 판매완료(내가 판매자) -----
     if status_filter == "selling":
-        pass
+        q = (
+            select(Posting)
+            .where(
+                Posting.seller_id == me.user_id,
+                Posting.status == "SELLING"
+            )
+        )
+
+    elif status_filter == "sold":
+        q = (
+            select(Posting)
+            .where(
+                Posting.seller_id == me.user_id,
+                Posting.status == "SOLD"
+            )
+        )
+
+    # ----- favorite (내가 즐겨찾기한 게시물) -----
     elif status_filter == "favorite":
-        raise HTTPException(501, "favorite 목록 API는 추후 구현 예정")
-    elif status_filter in ("sold", "purchased"):
-        raise HTTPException(501, "거래 상태 API는 추후 구현 예정")
+        q = (
+            select(Posting)
+            .join(Favorite, Favorite.posting_id == Posting.id)
+            .where(Favorite.user_id == me.user_id)
+        )
 
+    # ----- purchased (내가 구매한 거래) -----
+    elif status_filter == "purchased":
+        q = (
+            select(Posting)
+            .join(ChatRoom, ChatRoom.posting_id == Posting.id)
+            .where(
+                ChatRoom.buyer_id == me.user_id,
+                ChatRoom.status == "COMPLETED"
+            )
+        )
+
+    else:
+        raise HTTPException(400, "Invalid status")
+
+    # ----- 페이징 -----
     total = db.scalar(select(func.count()).select_from(q.subquery()))
-    rows = db.execute(q.order_by(desc(Posting.created_at)).offset((page-1)*size).limit(size)).scalars().all()
+    rows = (
+        db.execute(
+            q.order_by(desc(Posting.created_at))
+            .offset((page - 1) * size)
+            .limit(size)
+        )
+        .scalars()
+        .all()
+    )
 
-    data = [to_list_item(p, is_favorite=False) for p in rows]
-    return PageOut(page=page, size=size, total=total, data=data)
+    # ----- 즐겨찾기 여부 계산 -----
+    posting_ids = [p.id for p in rows]
+    fav_map = {
+        f.posting_id: True
+        for f in db.query(Favorite)
+        .filter(Favorite.user_id == me.user_id, Favorite.posting_id.in_(posting_ids))
+        .all()
+    }
+
+    # ----- list item 변환 -----
+    data = [
+        to_list_item(p, is_favorite=fav_map.get(p.id, False))
+        for p in rows
+    ]
+
+    return PageOut(
+        page=page,
+        size=size,
+        total=total,
+        data=data
+    )
+
 
 
 # ---------- 4) 특정 유저의 게시물 (특정 글 제외 지원) ----------
@@ -184,10 +243,6 @@ def postings_by_user(
     rows = db.execute(q.order_by(desc(Posting.created_at)).offset((page-1)*size).limit(size)).scalars().all()
     data = [to_list_item(p, is_favorite=False) for p in rows]
     return PageOut(page=page, size=size, total=total, data=data)
-
-
-# ---------- 5) 게시물 상세 (토큰 불필요) ----------
-
 
 # ---------- 5) 게시물 상세 (토큰 optional) ----------
 @router.get("/{posting_id}", response_model=PostingOut)

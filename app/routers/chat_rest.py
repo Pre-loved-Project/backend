@@ -1,23 +1,28 @@
-#app/routers/chat_rest.py
+# app/routers/chat_rest.py
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
+import asyncio  # ✅ 추가
 from app.core.db import get_db
 from app.core.auth import get_current_user
 from app.models.user import User
 from app.models.posting import Posting
 from app.models.chat import ChatRoom, ChatMessage, ChatRead
+from app.routers import chat_ws  # ✅ 추가
 
 router = APIRouter(prefix="/api/chat", tags=["Chat REST"])
+
 
 class CreateChatIn(BaseModel):
     postingId: int
 
+
 class CreateChatOut(BaseModel):
     chatId: int
     createdAt: str
+
 
 @router.post("", response_model=CreateChatOut)
 def create_chat(req: CreateChatIn, db: Session = Depends(get_db), me: User = Depends(get_current_user)):
@@ -35,6 +40,7 @@ def create_chat(req: CreateChatIn, db: Session = Depends(get_db), me: User = Dep
     db.refresh(room)
     return {"chatId": room.id, "createdAt": room.created_at.astimezone(timezone.utc).isoformat()}
 
+
 class ChatItem(BaseModel):
     chatId: int
     postingId: int
@@ -47,9 +53,14 @@ class ChatItem(BaseModel):
     otherImage: Optional[str]
     createdAt: str
 
+
 @router.get("/me", response_model=List[ChatItem])
-def list_my_chats(role: Optional[str] = None, status: Optional[str] = None,
-                  db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+def list_my_chats(
+    role: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
     q = db.query(ChatRoom).filter((ChatRoom.buyer_id == me.user_id) | (ChatRoom.seller_id == me.user_id))
     if role in ("buyer", "seller"):
         q = q.filter(ChatRoom.buyer_id == me.user_id) if role == "buyer" else q.filter(ChatRoom.seller_id == me.user_id)
@@ -59,6 +70,7 @@ def list_my_chats(role: Optional[str] = None, status: Optional[str] = None,
     res = []
     from app.models.posting import Posting
     from app.models.user import User as U
+
     for r in rooms:
         last = db.query(ChatMessage).filter(ChatMessage.room_id == r.id).order_by(ChatMessage.id.desc()).first()
         posting = db.query(Posting).filter(Posting.id == r.posting_id).first()
@@ -69,19 +81,22 @@ def list_my_chats(role: Optional[str] = None, status: Optional[str] = None,
             other_id = r.buyer_id
             role_ = "seller"
         other = db.query(U).filter(U.user_id == other_id).first()
-        res.append(ChatItem(
-            chatId=r.id,
-            postingId=r.posting_id,
-            postingTitle=posting.title if posting else "",
-            role=role_,
-            lastMessage=last.content if last else None,
-            status=r.status,
-            otherId=other_id,
-            otherNick=other.nickname if other else "",
-            otherImage=other.image_url if other else None,
-            createdAt=r.created_at.astimezone(timezone.utc).isoformat(),
-        ))
+        res.append(
+            ChatItem(
+                chatId=r.id,
+                postingId=r.posting_id,
+                postingTitle=posting.title if posting else "",
+                role=role_,
+                lastMessage=last.content if last else None,
+                status=r.status,
+                otherId=other_id,
+                otherNick=other.nickname if other else "",
+                otherImage=other.image_url if other else None,
+                createdAt=r.created_at.astimezone(timezone.utc).isoformat(),
+            )
+        )
     return res
+
 
 class MessageItem(BaseModel):
     messageId: int
@@ -91,13 +106,16 @@ class MessageItem(BaseModel):
     sendAt: str
     isRead: bool
 
+
 class MessagesOut(BaseModel):
     messages: List[MessageItem]
     hasNext: bool
     nextCursor: Optional[int]
 
+
 class UpdateDealStatusIn(BaseModel):
-    status: str  # "RESERVED", "COMPLETED", "SOLD" 등 프로젝트에서 사용하는 값
+    status: str  # "ACTIVE", "RESERVED", "COMPLETED" 중 하나
+
 
 class DealStatusOut(BaseModel):
     chatId: int
@@ -111,8 +129,13 @@ class DealStatusOut(BaseModel):
 
 
 @router.get("/{chat_id}", response_model=MessagesOut)
-def list_messages(chat_id: int = Path(...), cursor: Optional[int] = Query(None), size: Optional[int] = Query(20),
-                  db: Session = Depends(get_db), me: User = Depends(get_current_user)):
+def list_messages(
+    chat_id: int = Path(...),
+    cursor: Optional[int] = Query(None),
+    size: Optional[int] = Query(20),
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
     room = db.query(ChatRoom).filter(ChatRoom.id == chat_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="chat_not_found")
@@ -126,18 +149,21 @@ def list_messages(chat_id: int = Path(...), cursor: Optional[int] = Query(None),
     rows = rows[:size]
     messages = []
     for m in rows:
-        is_mine = (m.sender_id == me.user_id)
+        is_mine = m.sender_id == me.user_id
         read = db.query(ChatRead).filter(ChatRead.message_id == m.id).count() > 0
-        messages.append(MessageItem(
-            messageId=m.id,
-            isMine=is_mine,
-            type=m.type,
-            content=m.content,
-            sendAt=m.created_at.astimezone(timezone.utc).isoformat(),
-            isRead=read,
-        ))
+        messages.append(
+            MessageItem(
+                messageId=m.id,
+                isMine=is_mine,
+                type=m.type,
+                content=m.content,
+                sendAt=m.created_at.astimezone(timezone.utc).isoformat(),
+                isRead=read,
+            )
+        )
     next_cursor = rows[-1].id if rows else None
     return MessagesOut(messages=messages, hasNext=has_next, nextCursor=next_cursor)
+
 
 @router.patch("/{chat_id}/deal", response_model=DealStatusOut)
 def update_deal_status(
@@ -164,7 +190,7 @@ def update_deal_status(
     prev_status = room.status or "ACTIVE"
     new_status = body.status
 
-    # COMPLETED에서 다른 상태로는 못 돌아가게 막기 (원하면 유지)
+    # COMPLETED에서 다른 상태로는 못 돌아가게 막기
     if prev_status == "COMPLETED" and new_status != "COMPLETED":
         raise HTTPException(status_code=400, detail="completed_cannot_change")
 
@@ -211,6 +237,24 @@ def update_deal_status(
     db.refresh(room)
     db.refresh(posting)
 
+    # ✅ 여기서 WebSocket 브로드캐스트 날리기 (자기 포함 전체)
+    nick = me.nickname or "사용자"
+    if new_status == "RESERVED":
+        msg_text = f"{nick}님이 예약을 요청했습니다"
+    elif new_status == "COMPLETED":
+        msg_text = f"{nick}님이 거래를 완료했습니다"
+    else:
+        msg_text = f"{nick}님이 거래 상태를 변경했습니다"
+
+    asyncio.create_task(
+        chat_ws.broadcast_deal_update(
+            chat_id=room.id,
+            deal_status=new_status,
+            post_status=posting.status,
+            system_message=msg_text,
+        )
+    )
+
     return DealStatusOut(
         chatId=room.id,
         postingId=room.posting_id,
@@ -221,5 +265,3 @@ def update_deal_status(
         changedBy=me.user_id,
         changedAt=changed_at,
     )
-
-

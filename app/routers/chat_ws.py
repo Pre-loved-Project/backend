@@ -134,3 +134,15 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
         conns = connections.get(chat_id)
         if conns and websocket in conns:
             conns.discard(websocket)
+            
+# ---------- 거래 상태 변경 브로드캐스트 ----------
+# REST API(update_deal_status)에서 호출함
+async def broadcast_deal_update(chat_id: int, deal_status: str, post_status: str, system_message: str):
+    data = {
+        "type": "deal_update",
+        "chatId": chat_id,
+        "dealStatus": deal_status,
+        "postStatus": post_status,
+        "systemMessage": system_message,
+    }
+    await broadcast(chat_id, data, exclude=None)  # 자기 포함 모두에게 전송
