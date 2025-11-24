@@ -13,7 +13,8 @@ from app.models.posting import Posting
 from app.models.chat import ChatRoom, ChatMessage, ChatRead
 from app.schemas.chat import ChatListOut, ChatListItemOut, ChatLastMessageOut
 
-router = APIRouter(tags=["Chat"])
+# ✅ /api/chat prefix
+router = APIRouter(prefix="/api/chat", tags=["Chat"])
 
 
 class CreateChatIn(BaseModel):
@@ -28,7 +29,8 @@ class CreateChatOut(BaseModel):
     createdAt: str
 
 
-@router.post("/api/chat", response_model=CreateChatOut, status_code=status.HTTP_201_CREATED)
+# ✅ POST /api/chat
+@router.post("", response_model=CreateChatOut, status_code=status.HTTP_201_CREATED)
 def create_chat(
     req: CreateChatIn,
     db: Session = Depends(get_db),
@@ -67,13 +69,15 @@ def create_chat(
     )
 
 
-@router.get("/api/chat/me", response_model=ChatListOut)
+# ✅ GET /api/chat/me
+@router.get("/me", response_model=ChatListOut)
 def get_my_chats(
     role: Optional[Literal["buyer", "seller"]] = Query(None),
     status_param: Optional[str] = Query(None, alias="status"),
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
+    # 내가 buyer이거나 seller인 방들
     q = db.query(ChatRoom).filter(
         or_(
             ChatRoom.buyer_id == me.user_id,
@@ -81,11 +85,13 @@ def get_my_chats(
         )
     )
 
+    # role 필터
     if role == "buyer":
         q = q.filter(ChatRoom.buyer_id == me.user_id)
     elif role == "seller":
         q = q.filter(ChatRoom.seller_id == me.user_id)
 
+    # status 필터
     if status_param:
         q = q.filter(ChatRoom.status == status_param)
 
@@ -96,6 +102,7 @@ def get_my_chats(
     for room in rooms:
         posting = db.query(Posting).get(room.posting_id)
 
+        # 내 role / 상대방 계산
         if room.buyer_id == me.user_id:
             my_role: Literal["buyer", "seller"] = "buyer"
             other_id = room.seller_id
@@ -104,41 +111,42 @@ def get_my_chats(
             other_id = room.buyer_id
 
         other = db.query(User).get(other_id)
-        
-        last_msg: ChatMessage | None = (
-                    db.query(ChatMessage)
-                    .filter(
-                        ChatMessage.chat_id == room.id,
-                        ChatMessage.type.in_(["text", "image"]),  # ← 요 한 줄 추가
-                    )
-                    .order_by(desc(ChatMessage.id))
-                    .first()
-                )
+
+        # ✅ 마지막 메시지: room_id 기준으로 조회
+        last_msg: Optional[ChatMessage] = (
+            db.query(ChatMessage)
+            .filter(
+                ChatMessage.room_id == room.id,
+                ChatMessage.type.in_(["text", "image"]),
+            )
+            .order_by(desc(ChatMessage.id))
+            .first()
+        )
 
         last_msg_out: Optional[ChatLastMessageOut] = None
 
         if last_msg:
-            read_row: ChatRead | None = (
+            # ✅ 이 유저가 마지막 메시지를 읽었는지: message_id + user_id 기준으로 체크
+            read_row: Optional[ChatRead] = (
                 db.query(ChatRead)
                 .filter(
-                    ChatRead.chat_id == room.id,
+                    ChatRead.message_id == last_msg.id,
                     ChatRead.user_id == me.user_id,
                 )
                 .first()
             )
 
-            last_is_read = False
-            if read_row is not None and read_row.last_read_message_id >= last_msg.id:
-                last_is_read = True
+            last_is_read = read_row is not None
 
             last_msg_out = ChatLastMessageOut(
                 messageId=last_msg.id,
-                isMine=last_msg.sender_id == me.user_id,
+                isMine=(last_msg.sender_id == me.user_id),
                 type=last_msg.type,
                 content=last_msg.content,
                 sendAt=last_msg.created_at,
                 isRead=last_is_read,
             )
+
 
         status_value = room.status or "ACTIVE"
 

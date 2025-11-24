@@ -70,8 +70,8 @@ routers = [
     favorites_router,
     predict_router,
     image_router,
-    chat_rest.router,
     chat.router,
+    chat_rest.router,
     chat_ws.router,
 ]
 
