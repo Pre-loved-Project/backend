@@ -146,10 +146,15 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
 # REST API(update_deal_status)에서 호출함
 async def broadcast_deal_update(chat_id: int, deal_status: str, post_status: str, system_message: str):
     data = {
-        "type": "deal_update",
+        "type": "DEAL_UPDATE",
         "chatId": chat_id,
         "dealStatus": deal_status,
         "postStatus": post_status,
-        "systemMessage": system_message,
+        "systemMessage": {
+            "messageId": system_msg.id,
+            "content": system_msg.content,
+            "sendAt": system_msg.created_at.isoformat()
+        }
     }
-    await broadcast(chat_id, data, exclude=None)  # 자기 포함 모두에게 전송
+
+    await broadcast(chat_id, data)

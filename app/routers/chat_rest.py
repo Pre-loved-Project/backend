@@ -70,8 +70,13 @@ def list_messages(
 
     messages: List[MessageItem] = []
     for m in rows:
-        is_mine = m.sender_id == me.user_id
-        read = db.query(ChatRead).filter(ChatRead.message_id == m.id).count() > 0
+        if m.type == "SYSTEM":
+            is_mine = False
+            read = True   # 시스템 메세지는 그냥 항상 읽은 걸로 취급
+        else:
+            is_mine = (m.sender_id == me.user_id)
+            read = db.query(ChatRead).filter(ChatRead.message_id == m.id).count() > 0
+
         messages.append(
             MessageItem(
                 messageId=m.id,
@@ -151,19 +156,34 @@ async def update_deal_status(
     db.refresh(posting)
 
     nick = me.nickname or "사용자"
-    if new_status == "RESERVED":
+
+    if prev_status == "RESERVED" and new_status == "ACTIVE":
+        msg_text = f"{nick}님이 예약을 취소했습니다"
+    elif new_status == "RESERVED":
         msg_text = f"{nick}님이 예약을 요청했습니다"
     elif new_status == "COMPLETED":
         msg_text = f"{nick}님이 거래를 완료했습니다"
     else:
         msg_text = f"{nick}님이 거래 상태를 변경했습니다"
 
-    # ✅ 여기! 이제는 그냥 await로 보내기
+    # ✅ 시스템 메시지를 ChatMessage 로 저장
+    system_msg = ChatMessage(
+        room_id=room.id,
+        sender_id=None,        # 시스템이라서 보낸 사람 없음
+        type="SYSTEM",
+        content=msg_text,
+    )
+    db.add(system_msg)
+    db.commit()
+    db.refresh(system_msg)
+
+    # ✅ 기존처럼 브로드캐스트 (필요하면 messageId도 같이 넘겨도 됨)
     await chat_ws.broadcast_deal_update(
         chat_id=room.id,
         deal_status=new_status,
         post_status=posting.status,
         system_message=msg_text,
+        # 필요하면 system_message_id=system_msg.id 이런 식으로 확장
     )
 
     return DealStatusOut(

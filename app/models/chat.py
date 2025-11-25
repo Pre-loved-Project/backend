@@ -1,3 +1,4 @@
+#app/models/chat.py
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 from app.core.db import Base
@@ -17,11 +18,13 @@ class ChatMessage(Base):
     __tablename__ = "chat_messages"
     id = Column(Integer, primary_key=True, index=True)
     room_id = Column(Integer, ForeignKey("chat_rooms.id", ondelete="CASCADE"), nullable=False, index=True)
-    sender_id = Column(Integer, ForeignKey("users.userId", ondelete="CASCADE"), nullable=False, index=True)
+    sender_id = Column(Integer, ForeignKey("users.userId", ondelete="CASCADE"), nullable=True, index=True)  # ✅ 변경
     type = Column(String(20), nullable=False)
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     room = relationship("ChatRoom", back_populates="messages")
+
+
 
 class ChatRead(Base):
     __tablename__ = "chat_reads"
