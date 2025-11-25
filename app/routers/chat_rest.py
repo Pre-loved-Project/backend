@@ -169,8 +169,8 @@ async def update_deal_status(
     # ✅ 시스템 메시지를 ChatMessage 로 저장
     system_msg = ChatMessage(
         room_id=room.id,
-        sender_id=None,        # 시스템이라서 보낸 사람 없음
-        type="SYSTEM",
+        sender_id=me.user_id,        # 시스템이라서 보낸 사람 없음
+        type="system",
         content=msg_text,
     )
     db.add(system_msg)
