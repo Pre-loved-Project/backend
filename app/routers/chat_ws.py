@@ -6,6 +6,9 @@ from typing import Dict, Set, Optional
 from jose import jwt, JWTError
 from app.core.db import get_db
 from app.core.config import settings
+from app.routers.chat_list_ws import broadcast_chat_list_update
+from app.utils.auth_ws import decode_user_id
+
 from app.models.chat import ChatRoom, ChatMessage, ChatRead
 from app.schemas.chat import (
     JoinRoomIn,
@@ -22,17 +25,6 @@ router = APIRouter()
 
 # 방별 연결 관리
 connections: Dict[int, Set[WebSocket]] = {}
-
-
-def decode_user_id(token: Optional[str]) -> Optional[int]:
-    if not token:
-        return None
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALG])
-        sub = payload.get("sub")
-        return int(sub) if sub is not None else None
-    except JWTError:
-        return None
 
 
 async def broadcast(chat_id: int, data: dict, exclude: Optional[WebSocket] = None):
@@ -114,6 +106,7 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                 )
                 await broadcast(chat_id, out.dict(), exclude=websocket)
 
+                await broadcast_chat_list_update(room, msg, db)
             elif ev == "read_message":
                 parsed = ReadMessageIn(**data)
                 exists = (

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.core.db import Base, engine
 from app.core.config import settings
-from app.routers import chat_ws 
+from app.routers import chat_ws, chat_list_ws 
 
 app = FastAPI(title="Pre-loved API")
 
@@ -73,6 +73,7 @@ routers = [
     chat.router,
     chat_rest.router,
     chat_ws.router,
+    chat_list_ws.router,
 ]
 
 for r in routers:
