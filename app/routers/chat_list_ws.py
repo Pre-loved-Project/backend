@@ -130,12 +130,14 @@ def _build_chat_created_payload(chat: ChatRoom, me_id: int, db: Session) -> Opti
 # ---------- 외부에서 호출하는 브로드캐스트 함수들 ----------
 
 async def broadcast_chat_created(chat: ChatRoom, db: Session):
-    """새 채팅방 생성 시 buyer/seller 둘 다에게 chat_created 이벤트"""
-    users = [chat.buyer_id, chat.seller_id]
-    for uid in users:
-        payload = _build_chat_created_payload(chat, uid, db)
-        if payload:
-            await broadcast_to_user(uid, "chat_created", payload)
+    """새 채팅방 생성 시 판매자(seller)에게만 chat_created 이벤트"""
+
+    seller_id = chat.seller_id
+
+    payload = _build_chat_created_payload(chat, seller_id, db)
+    if payload:
+        await broadcast_to_user(seller_id, "chat_created", payload)
+
 
 
 async def broadcast_chat_list_update(chat: ChatRoom, last_msg: ChatMessage, db: Session):

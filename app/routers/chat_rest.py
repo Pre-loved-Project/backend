@@ -1,10 +1,9 @@
 # app/routers/chat_rest.py
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from fastapi import APIRouter, Depends, HTTPException, Query, Path, BackgroundTasks  # 🔹 BackgroundTasks 추가
 from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
-import asyncio
 
 from app.core.db import get_db
 from app.core.auth import get_current_user
@@ -12,8 +11,20 @@ from app.models.user import User
 from app.models.posting import Posting
 from app.models.chat import ChatRoom, ChatMessage, ChatRead
 from app.routers import chat_ws
+from app.routers.chat_list_ws import broadcast_chat_created  # 🔹 추가
 
 router = APIRouter(prefix="/api/chat", tags=["Chat REST"])
+
+# 🔹 채팅방 생성 요청/응답 모델 추가
+class CreateChatIn(BaseModel):
+    postingId: int
+
+class CreateChatOut(BaseModel):
+    chatId: int
+    postingId: int
+    sellerId: int
+    buyerId: int
+    createdAt: str
 
 
 class MessageItem(BaseModel):
@@ -46,6 +57,46 @@ class DealStatusOut(BaseModel):
     changedAt: str
 
 
+# 🔥 새 채팅방 생성 + 판매자에게만 chat_created 브로드캐스트
+@router.post("", response_model=CreateChatOut)
+def create_chat(
+    body: CreateChatIn,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    me: User = Depends(get_current_user),
+):
+    # 1) 게시글 확인
+    posting = db.query(Posting).filter(Posting.id == body.postingId).first()
+    if not posting:
+        raise HTTPException(status_code=404, detail="posting_not_found")
+
+    # 2) 자기 자신에게 채팅 방지
+    if posting.seller_id == me.user_id:
+        raise HTTPException(status_code=400, detail="cannot_chat_with_self")
+
+    # 3) 채팅방 생성 (buyer = me, seller = 게시글 작성자)
+    room = ChatRoom(
+        posting_id=posting.id,
+        seller_id=posting.seller_id,
+        buyer_id=me.user_id,
+        # status는 모델 default 있으면 생략 가능
+    )
+    db.add(room)
+    db.commit()
+    db.refresh(room)
+
+    # 4) 🔔 판매자에게만 chat_created 이벤트 전송 (백그라운드)
+    background_tasks.add_task(broadcast_chat_created, room, db)
+
+    return CreateChatOut(
+        chatId=room.id,
+        postingId=room.posting_id,
+        sellerId=room.seller_id,
+        buyerId=room.buyer_id,
+        createdAt=room.created_at.astimezone(timezone.utc).isoformat(),
+    )
+
+
 @router.get("/{chat_id}", response_model=MessagesOut)
 def list_messages(
     chat_id: int = Path(...),
@@ -70,9 +121,9 @@ def list_messages(
 
     messages: List[MessageItem] = []
     for m in rows:
-        if m.type == "SYSTEM":
+        if m.type.upper() == "SYSTEM":
             is_mine = False
-            read = True   # 시스템 메세지는 그냥 항상 읽은 걸로 취급
+            read = True   # 시스템 메세지는 항상 읽은 걸로 취급
         else:
             is_mine = (m.sender_id == me.user_id)
             read = db.query(ChatRead).filter(ChatRead.message_id == m.id).count() > 0
@@ -91,6 +142,7 @@ def list_messages(
     next_cursor = rows[-1].id if rows else None
     return MessagesOut(messages=messages, hasNext=has_next, nextCursor=next_cursor)
 
+
 @router.patch("/{chat_id}/deal", response_model=DealStatusOut)
 async def update_deal_status(
     chat_id: int = Path(..., description="대상 채팅방 ID"),
@@ -98,16 +150,14 @@ async def update_deal_status(
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    # 1) 채팅방 조회
+    # 이하 내용은 네가 올린 그대로 (거래 상태 변경 + system 메시지 + broadcast_deal_update)
     room = db.query(ChatRoom).filter(ChatRoom.id == chat_id).first()
     if not room:
         raise HTTPException(status_code=404, detail="chat_not_found")
 
-    # 2) 권한 체크
     if me.user_id not in (room.buyer_id, room.seller_id):
         raise HTTPException(status_code=403, detail="forbidden")
 
-    # 3) 허용 status만
     allowed = {"ACTIVE", "RESERVED", "COMPLETED"}
     if body.status not in allowed:
         raise HTTPException(status_code=400, detail="invalid_status")
@@ -121,33 +171,27 @@ async def update_deal_status(
     if prev_status == new_status:
         raise HTTPException(status_code=400, detail="same_status")
 
-    # 4) 게시글 조회
     posting = db.query(Posting).filter(Posting.id == room.posting_id).first()
     if not posting:
         raise HTTPException(status_code=404, detail="posting_not_found")
 
-    # 5) posting.status 연동
     if prev_status == "ACTIVE" and new_status == "RESERVED":
         if posting.status == "SELLING":
             posting.status = "RESERVED"
-
     elif prev_status == "RESERVED" and new_status == "ACTIVE":
         if posting.status == "RESERVED":
             posting.status = "SELLING"
-
     elif prev_status == "RESERVED" and new_status == "COMPLETED":
         if posting.status == "RESERVED":
             posting.status = "SOLD"
 
         seller = db.query(User).filter(User.user_id == room.seller_id).first()
         buyer = db.query(User).filter(User.user_id == room.buyer_id).first()
-
         if seller is not None:
             seller.sell_count = (seller.sell_count or 0) + 1
         if buyer is not None:
             buyer.buy_count = (buyer.buy_count or 0) + 1
 
-    # 6) 채팅방 상태 변경
     room.status = new_status
     changed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -166,10 +210,9 @@ async def update_deal_status(
     else:
         msg_text = f"{nick}님이 거래 상태를 변경했습니다"
 
-    # ✅ 시스템 메시지를 ChatMessage 로 저장
     system_msg = ChatMessage(
         room_id=room.id,
-        sender_id=me.user_id,        # 시스템이라서 보낸 사람 없음
+        sender_id=me.user_id,
         type="system",
         content=msg_text,
     )
@@ -177,13 +220,11 @@ async def update_deal_status(
     db.commit()
     db.refresh(system_msg)
 
-    # ✅ 기존처럼 브로드캐스트 (필요하면 messageId도 같이 넘겨도 됨)
     await chat_ws.broadcast_deal_update(
         chat_id=room.id,
         deal_status=new_status,
         post_status=posting.status,
         system_message=msg_text,
-        # 필요하면 system_message_id=system_msg.id 이런 식으로 확장
     )
 
     return DealStatusOut(
