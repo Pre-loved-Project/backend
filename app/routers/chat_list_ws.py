@@ -72,26 +72,35 @@ def _build_other(chat: ChatRoom, me_id: int, db: Session) -> dict:
         "otherImageUrl": getattr(other, "image_url", None) if other else None,
     }
 
-def _build_last_message(chat: ChatRoom, me_id: int, db: Session) -> Optional[dict]:
+def _build_last_message(chat: ChatRoom, me_id: int, db: Session) -> dict:
     last_msg = (
         db.query(ChatMessage)
         .filter(ChatMessage.room_id == chat.id)
         .order_by(desc(ChatMessage.created_at))
         .first()
     )
+
+    # 🔥 메시지가 하나도 없을 때 기본값
     if not last_msg:
-        return None
+        return {
+            "messageId": None,
+            "isMine": False,
+            "type": "text",
+            "content": "메시지 없음",
+            "sendAt": None,
+            "isRead": True,
+        }
 
     # 내가 읽었는지 여부 (ChatRead 기준)
-    is_read = (
+    read = (
         db.query(ChatRead)
         .filter(
-            ChatRead.message_id == last_msg.id,
-            ChatRead.user_id == me_id,
+            ChatRead.message_id == m.id,
+            ChatRead.user_id == me.user_id,
         )
-        .first()
-        is not None
+        .count() > 0
     )
+
 
     return {
         "messageId": last_msg.id,

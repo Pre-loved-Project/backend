@@ -131,17 +131,39 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                     await broadcast_chat_list_update(room, msg, db)
 
             elif ev == "read_message":
-                parsed = ReadMessageIn(**data)
-                exists = (
-                    db.query(ChatRead)
-                    .filter(ChatRead.message_id == parsed.messageId, ChatRead.user_id == user_id)
-                    .first()
+                opponent_id = room.seller_id if user_id == room.buyer_id else room.buyer_id
+
+                unread_messages = (
+                    db.query(ChatMessage)
+                    .outerjoin(
+                        ChatRead,
+                        (ChatRead.message_id == ChatMessage.id) & (ChatRead.user_id == user_id),
+                    )
+                    .filter(
+                        ChatMessage.room_id == chat_id,
+                        ChatMessage.sender_id == opponent_id,
+                        ChatRead.id.is_(None),
+                    )
+                    .order_by(ChatMessage.id.asc())
+                    .all()
                 )
-                if not exists:
-                    db.add(ChatRead(message_id=parsed.messageId, user_id=user_id))
-                    db.commit()
-                # 읽음 브로드캐스트 (보낸 본인 제외)
-                await broadcast(chat_id, SystemMessageOut(type="read", message=str(parsed.messageId)).dict(), exclude=websocket)
+
+                if not unread_messages:
+                    continue
+
+                for m in unread_messages:
+                    db.add(ChatRead(message_id=m.id, user_id=user_id))
+
+                db.commit()
+
+                last_read_id = unread_messages[-1].id
+
+                await broadcast(
+                    chat_id,
+                    SystemMessageOut(type="read", message=str(last_read_id)).dict(),
+                    exclude=websocket,
+                )
+
 
             elif ev == "leave_room":
                 _ = LeaveRoomIn(**data)
