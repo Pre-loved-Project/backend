@@ -72,7 +72,6 @@ def _build_other(chat: ChatRoom, me_id: int, db: Session) -> dict:
         "otherImageUrl": getattr(other, "image_url", None) if other else None,
     }
 
-
 def _build_last_message(chat: ChatRoom, me_id: int, db: Session) -> Optional[dict]:
     last_msg = (
         db.query(ChatMessage)
@@ -102,6 +101,7 @@ def _build_last_message(chat: ChatRoom, me_id: int, db: Session) -> Optional[dic
         "sendAt": last_msg.created_at.astimezone().isoformat(),
         "isRead": is_read,
     }
+
 
 
 def _build_chat_created_payload(chat: ChatRoom, me_id: int, db: Session) -> Optional[dict]:

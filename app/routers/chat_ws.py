@@ -6,7 +6,10 @@ from typing import Dict, Set, Optional
 from jose import jwt, JWTError
 from app.core.db import get_db
 from app.core.config import settings
-from app.routers.chat_list_ws import broadcast_chat_list_update
+from app.routers.chat_list_ws import (
+    broadcast_chat_list_update,
+    broadcast_chat_created,
+)
 from app.utils.auth_ws import decode_user_id
 
 from app.models.chat import ChatRoom, ChatMessage, ChatRead
@@ -90,23 +93,43 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                     await websocket.send_json(ErrorOut(code=4003, message="invalid_payload").dict())
                     continue
 
+                # 🔥 이 방에 기존 메시지가 있었는지 확인 (첫 메시지 여부)
+                has_any_message = (
+                    db.query(ChatMessage.id)
+                    .filter(ChatMessage.room_id == chat_id)
+                    .first()
+                    is not None
+                )
+
                 # DB 저장
-                msg = ChatMessage(room_id=chat_id, sender_id=user_id, type=parsed.type, content=parsed.content)
+                msg = ChatMessage(
+                    room_id=chat_id,
+                    sender_id=user_id,
+                    type=parsed.type,
+                    content=parsed.content,
+                )
                 db.add(msg)
                 db.commit()
                 db.refresh(msg)
 
-                # 브로드캐스트 (보낸 본인 제외)
+                # 채팅방 내부 브로드캐스트 (보낸 본인 제외)
                 out = ReceiveMessageOut(
                     messageId=msg.id,
                     senderId=user_id,
                     type=msg.type,
                     content=msg.content,
-                    createdAt=msg.created_at.astimezone().isoformat(),  # ← str
+                    createdAt=msg.created_at.astimezone().isoformat(),
                 )
                 await broadcast(chat_id, out.dict(), exclude=websocket)
 
-                await broadcast_chat_list_update(room, msg, db)
+                # 🔥 chat-list 브로드캐스트 분기
+                if not has_any_message:
+                    # 첫 메시지 → seller에게만 새로운 채팅방 알림
+                    await broadcast_chat_created(room, db)
+                else:
+                    # 이후 메시지 → buyer/seller 둘 다 lastMessage 업데이트
+                    await broadcast_chat_list_update(room, msg, db)
+
             elif ev == "read_message":
                 parsed = ReadMessageIn(**data)
                 exists = (

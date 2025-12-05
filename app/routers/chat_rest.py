@@ -1,5 +1,5 @@
 # app/routers/chat_rest.py
-from fastapi import APIRouter, Depends, HTTPException, Query, Path, BackgroundTasks  # 🔹 BackgroundTasks 추가
+from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy.orm import Session
@@ -11,7 +11,6 @@ from app.models.user import User
 from app.models.posting import Posting
 from app.models.chat import ChatRoom, ChatMessage, ChatRead
 from app.routers import chat_ws
-from app.routers.chat_list_ws import broadcast_chat_created  # 🔹 추가
 
 router = APIRouter(prefix="/api/chat", tags=["Chat REST"])
 
@@ -59,9 +58,9 @@ class DealStatusOut(BaseModel):
 
 # 🔥 새 채팅방 생성 + 판매자에게만 chat_created 브로드캐스트
 @router.post("", response_model=CreateChatOut)
+@router.post("", response_model=CreateChatOut)
 def create_chat(
     body: CreateChatIn,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
@@ -79,14 +78,12 @@ def create_chat(
         posting_id=posting.id,
         seller_id=posting.seller_id,
         buyer_id=me.user_id,
-        # status는 모델 default 있으면 생략 가능
     )
     db.add(room)
     db.commit()
     db.refresh(room)
 
-    # 4) 🔔 판매자에게만 chat_created 이벤트 전송 (백그라운드)
-    background_tasks.add_task(broadcast_chat_created, room, db)
+    # ✅ 여기서는 WS 브로드캐스트 안 보냄! (첫 메시지 때 보냄)
 
     return CreateChatOut(
         chatId=room.id,
@@ -95,6 +92,7 @@ def create_chat(
         buyerId=room.buyer_id,
         createdAt=room.created_at.astimezone(timezone.utc).isoformat(),
     )
+
 
 
 @router.get("/{chat_id}", response_model=MessagesOut)
