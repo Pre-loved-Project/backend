@@ -39,7 +39,7 @@ class MessagesOut(BaseModel):
     messages: List[MessageItem]
     hasNext: bool
     nextCursor: Optional[int]
-
+    lastReadMessageId: Optional[int] = None
 
 class UpdateDealStatusIn(BaseModel):
     status: str
@@ -96,6 +96,7 @@ def create_chat(
 
 
 @router.get("/{chat_id}", response_model=MessagesOut)
+@router.get("/{chat_id}", response_model=MessagesOut)
 def list_messages(
     chat_id: int = Path(...),
     cursor: Optional[int] = Query(None),
@@ -121,10 +122,18 @@ def list_messages(
     for m in rows:
         if m.type.upper() == "SYSTEM":
             is_mine = False
-            read = True   # 시스템 메세지는 항상 읽은 걸로 취급
+            read = True  # 시스템 메시지는 항상 읽은 걸로
         else:
             is_mine = (m.sender_id == me.user_id)
-            read = db.query(ChatRead).filter(ChatRead.message_id == m.id).count() > 0
+            # 👇 이제 "나(me)가 읽었는지" 기준으로 체크
+            read = (
+                db.query(ChatRead)
+                .filter(
+                    ChatRead.message_id == m.id,
+                    ChatRead.user_id == me.user_id,
+                )
+                .count() > 0
+            )
 
         messages.append(
             MessageItem(
@@ -138,7 +147,27 @@ def list_messages(
         )
 
     next_cursor = rows[-1].id if rows else None
-    return MessagesOut(messages=messages, hasNext=has_next, nextCursor=next_cursor)
+
+    # 👇 이 채팅방에서 "나(me)가 마지막으로 읽은 메시지 ID"
+    last_read_row = (
+        db.query(ChatRead.message_id)
+        .join(ChatMessage, ChatRead.message_id == ChatMessage.id)
+        .filter(
+            ChatMessage.room_id == chat_id,   # 이 방에서
+            ChatRead.user_id == me.user_id,   # 내가 읽은 메시지들 중
+        )
+        .order_by(ChatRead.message_id.desc())  # 가장 큰 id = 마지막으로 읽은 메시지
+        .first()
+    )
+    last_read_id = last_read_row[0] if last_read_row else None
+
+    return MessagesOut(
+        messages=messages,
+        hasNext=has_next,
+        nextCursor=next_cursor,
+        lastReadMessageId=last_read_id,   # 👈 여기 추가
+    )
+
 
 
 @router.patch("/{chat_id}/deal", response_model=DealStatusOut)
