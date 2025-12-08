@@ -131,38 +131,35 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                     await broadcast_chat_list_update(room, msg, db)
 
             elif ev == "read_message":
-                opponent_id = room.seller_id if user_id == room.buyer_id else room.buyer_id
+                parsed = ReadMessageIn(**data)
 
-                unread_messages = (
-                    db.query(ChatMessage)
-                    .outerjoin(
-                        ChatRead,
-                        (ChatRead.message_id == ChatMessage.id) & (ChatRead.user_id == user_id),
-                    )
+                # 1) DB에 읽음 기록 저장 (이미 있으면 스킵)
+                exists = (
+                    db.query(ChatRead)
                     .filter(
-                        ChatMessage.room_id == chat_id,
-                        ChatMessage.sender_id == opponent_id,
-                        ChatRead.id.is_(None),
+                        ChatRead.message_id == parsed.messageId,
+                        ChatRead.user_id == user_id,
                     )
-                    .order_by(ChatMessage.id.asc())
-                    .all()
+                    .first()
                 )
+                if not exists:
+                    db.add(ChatRead(message_id=parsed.messageId, user_id=user_id))
+                    db.commit()
 
-                if not unread_messages:
-                    continue
-
-                for m in unread_messages:
-                    db.add(ChatRead(message_id=m.id, user_id=user_id))
-
-                db.commit()
-
-                last_read_id = unread_messages[-1].id
+                # 2) 프론트가 쓰기 쉬운 읽음 이벤트 브로드캐스트
+                #    - 이 소켓에 연결된 상대방에게만 전달 (exclude=websocket)
+                payload = {
+                    "type": "read",              # 프론트에서 type으로 분기
+                    "readerId": user_id,         # 누가 읽었는지
+                    "lastReadMessageId": parsed.messageId,  # 어디까지 읽었는지
+                }
 
                 await broadcast(
                     chat_id,
-                    SystemMessageOut(type="read", message=str(last_read_id)).dict(),
+                    payload,
                     exclude=websocket,
                 )
+
 
 
             elif ev == "leave_room":
