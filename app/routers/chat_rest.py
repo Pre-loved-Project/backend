@@ -58,7 +58,6 @@ class DealStatusOut(BaseModel):
 
 # 🔥 새 채팅방 생성 + 판매자에게만 chat_created 브로드캐스트
 @router.post("", response_model=CreateChatOut)
-@router.post("", response_model=CreateChatOut)
 def create_chat(
     body: CreateChatIn,
     db: Session = Depends(get_db),
@@ -148,15 +147,19 @@ def list_messages(
 
     next_cursor = rows[-1].id if rows else None
 
-    # 👇 이 채팅방에서 "나(me)가 마지막으로 읽은 메시지 ID"
+    # 👇 이 채팅방에서 "상대방이 읽은, 내가 보낸 마지막 메시지 ID"
+    # 상대방 ID 계산
+    other_user_id = room.seller_id if me.user_id == room.buyer_id else room.buyer_id
+
     last_read_row = (
         db.query(ChatRead.message_id)
         .join(ChatMessage, ChatRead.message_id == ChatMessage.id)
         .filter(
-            ChatMessage.room_id == chat_id,   # 이 방에서
-            ChatRead.user_id == me.user_id,   # 내가 읽은 메시지들 중
+            ChatMessage.room_id == chat_id,        # 이 방에서
+            ChatRead.user_id == other_user_id,     # 상대방이 읽은 메시지들 중
+            ChatMessage.sender_id == me.user_id,   # 그 중에서 "내가 보낸" 메시지
         )
-        .order_by(ChatRead.message_id.desc())  # 가장 큰 id = 마지막으로 읽은 메시지
+        .order_by(ChatRead.message_id.desc())      # 가장 큰 id = 마지막으로 읽은 메시지
         .first()
     )
     last_read_id = last_read_row[0] if last_read_row else None
@@ -165,8 +168,9 @@ def list_messages(
         messages=messages,
         hasNext=has_next,
         nextCursor=next_cursor,
-        lastReadMessageId=last_read_id,   # 👈 여기 추가
+        lastReadMessageId=last_read_id,
     )
+
 
 
 
