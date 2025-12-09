@@ -95,7 +95,6 @@ def create_chat(
 
 
 @router.get("/{chat_id}", response_model=MessagesOut)
-@router.get("/{chat_id}", response_model=MessagesOut)
 def list_messages(
     chat_id: int = Path(...),
     cursor: Optional[int] = Query(None),
@@ -124,12 +123,11 @@ def list_messages(
             read = True  # 시스템 메시지는 항상 읽은 걸로
         else:
             is_mine = (m.sender_id == me.user_id)
-            # 👇 이제 "나(me)가 읽었는지" 기준으로 체크
+            # ChatRead에 메시지가 있으면 읽은거임
             read = (
                 db.query(ChatRead)
                 .filter(
                     ChatRead.message_id == m.id,
-                    ChatRead.user_id == me.user_id,
                 )
                 .count() > 0
             )

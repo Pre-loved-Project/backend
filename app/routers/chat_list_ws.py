@@ -95,8 +95,7 @@ def _build_last_message(chat: ChatRoom, me_id: int, db: Session) -> dict:
     read = (
         db.query(ChatRead)
         .filter(
-            ChatRead.message_id == m.id,
-            ChatRead.user_id == me.user_id,
+            ChatRead.message_id == me_id,
         )
         .count() > 0
     )
@@ -108,7 +107,7 @@ def _build_last_message(chat: ChatRoom, me_id: int, db: Session) -> dict:
         "type": "image" if last_msg.type == "image" else "text",
         "content": last_msg.content or "",
         "sendAt": last_msg.created_at.astimezone().isoformat(),
-        "isRead": is_read,
+        "isRead": read,
     }
 
 
@@ -130,6 +129,7 @@ def _build_chat_created_payload(chat: ChatRoom, me_id: int, db: Session) -> Opti
         "otherId": other["otherId"],
         "otherNickname": other["otherNickname"],
         "otherImageUrl": other["otherImageUrl"],
+        "createdAt": chat.created_at
     }
     if last_message:
         payload["lastMessage"] = last_message
@@ -154,12 +154,11 @@ async def broadcast_chat_list_update(chat: ChatRoom, last_msg: ChatMessage, db: 
     users = [chat.buyer_id, chat.seller_id]
 
     for uid in users:
-        last_message = _build_last_message(chat, uid, db)
-        if not last_message:
+        if not last_msg:
             continue
         payload = {
             "chatId": chat.id,
-            "lastMessage": last_message,
+            "lastMessage": last_msg,
         }
         await broadcast_to_user(uid, "chat_list_update", payload)
 
