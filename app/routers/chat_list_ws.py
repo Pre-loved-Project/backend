@@ -95,7 +95,7 @@ def _build_last_message(chat: ChatRoom, me_id: int, db: Session) -> dict:
     read = (
         db.query(ChatRead)
         .filter(
-            ChatRead.last_read_message_id == me_id,
+            ChatRead.last_read_message_id >= me_id,
         )
         .count() > 0
     )

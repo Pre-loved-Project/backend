@@ -130,8 +130,9 @@ def get_my_chats(
             read_row: Optional[ChatRead] = (
                 db.query(ChatRead)
                 .filter(
-                    ChatRead.message_id == last_msg.id,
+                    ChatRead.last_read_message_id >= last_msg.id,
                     ChatRead.user_id == me.user_id,
+                    ChatRead.room_id == room.id
                 )
                 .first()
             )

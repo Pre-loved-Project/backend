@@ -158,7 +158,7 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                     read = ChatRead(
                         room_id=chat_id,
                         user_id=user_id,
-                        last_message_id=parsed.messageId,
+                        last_read_message_id=parsed.messageId,
                     )
                     db.add(read)
                 else:
