@@ -127,6 +127,8 @@ def list_messages(
             read = (
                 db.query(ChatRead)
                 .filter(
+                    ChatRead.room_id == m.room_id,
+                    ChatRead.user_id != m.sender_id,
                     ChatRead.last_read_message_id >= m.id,
                 )
                 .count() > 0
