@@ -120,7 +120,7 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                     content=msg.content,
                     createdAt=msg.created_at.astimezone().isoformat(),
                 )
-                await broadcast(chat_id, out.dict(), exclude=websocket)
+                await broadcast(chat_id, out.dict())
 
                 # 🔥 chat-list 브로드캐스트 분기
                 if not has_any_message:
@@ -133,25 +133,44 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
             elif ev == "read_message":
                 parsed = ReadMessageIn(**data)
 
-                # 1) DB에 읽음 기록 저장 (이미 있으면 스킵)
-                exists = (
+                msg = (
+                    db.query(ChatMessage)
+                    .filter(
+                        ChatMessage.id == parsed.messageId,
+                        ChatMessage.room_id == chat_id,
+                    )
+                    .first()
+                )
+                if not msg:
+                    await websocket.send_json(ErrorOut(code=4004, message="message_not_found").dict())
+                    continue
+
+                read = (
                     db.query(ChatRead)
                     .filter(
-                        ChatRead.message_id == parsed.messageId,
+                        ChatRead.room_id == chat_id,
                         ChatRead.user_id == user_id,
                     )
                     .first()
                 )
-                if not exists:
-                    db.add(ChatRead(message_id=parsed.messageId, user_id=user_id))
-                    db.commit()
 
-                # 2) 프론트가 쓰기 쉬운 읽음 이벤트 브로드캐스트
-                #    - 이 소켓에 연결된 상대방에게만 전달 (exclude=websocket)
+                if read is None:
+                    read = ChatRead(
+                        room_id=chat_id,
+                        user_id=user_id,
+                        last_message_id=parsed.messageId,
+                    )
+                    db.add(read)
+                else:
+                    if parsed.messageId > read.last_message_id:
+                        read.last_message_id = parsed.messageId
+
+                db.commit()
+
                 payload = {
-                    "type": "read",              # 프론트에서 type으로 분기
-                    "readerId": user_id,         # 누가 읽었는지
-                    "lastReadMessageId": parsed.messageId,  # 어디까지 읽었는지
+                    "type": "read",
+                    "readerId": user_id,
+                    "lastReadMessageId": parsed.messageId,
                 }
 
                 await broadcast(
