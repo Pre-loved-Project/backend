@@ -127,7 +127,7 @@ def list_messages(
             read = (
                 db.query(ChatRead)
                 .filter(
-                    ChatRead.message_id == m.id,
+                    ChatRead.last_message_id == m.id,
                 )
                 .count() > 0
             )
@@ -150,14 +150,14 @@ def list_messages(
     other_user_id = room.seller_id if me.user_id == room.buyer_id else room.buyer_id
 
     last_read_row = (
-        db.query(ChatRead.message_id)
-        .join(ChatMessage, ChatRead.message_id == ChatMessage.id)
+        db.query(ChatRead.last_message_id)
+        .join(ChatMessage, ChatRead.last_message_id == ChatMessage.id)
         .filter(
             ChatMessage.room_id == chat_id,        # 이 방에서
             ChatRead.user_id == other_user_id,     # 상대방이 읽은 메시지들 중
             ChatMessage.sender_id == me.user_id,   # 그 중에서 "내가 보낸" 메시지
         )
-        .order_by(ChatRead.message_id.desc())      # 가장 큰 id = 마지막으로 읽은 메시지
+        .order_by(ChatRead.last_message_id.desc())      # 가장 큰 id = 마지막으로 읽은 메시지
         .first()
     )
     last_read_id = last_read_row[0] if last_read_row else None

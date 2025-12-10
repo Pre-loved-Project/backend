@@ -162,8 +162,8 @@ async def websocket_chat(websocket: WebSocket, chat_id: int, db: Session = Depen
                     )
                     db.add(read)
                 else:
-                    if parsed.messageId > read.last_message_id:
-                        read.last_message_id = parsed.messageId
+                    if parsed.messageId > read.last_read_message_id:
+                        read.last_read_message_id = parsed.messageId
 
                 db.commit()
 
