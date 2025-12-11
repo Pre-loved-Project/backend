@@ -57,7 +57,10 @@ def update_me(payload: MeUpdateIn, current: User = Depends(get_current_user), db
     if "introduction" in data:
         me.introduction = data["introduction"]
     if "image_url" in data:
-        me.image_url = str(data["image_url"])   # ✅ HttpUrl → str 변환
+        if data["image_url"] is None:
+            me.image_url = None
+        else :
+            me.image_url = str(data["image_url"])   # ✅ HttpUrl → str 변환
 
     if "category" in data:
         me.category = data["category"]
