@@ -9,7 +9,7 @@ from app.core.security import hash_password, get_current_user
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
-@router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreateIn, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="EMAIL_DUPLICATE")
