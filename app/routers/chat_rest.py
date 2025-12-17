@@ -57,32 +57,34 @@ class DealStatusOut(BaseModel):
 
 
 # 🔥 새 채팅방 생성 + 판매자에게만 chat_created 브로드캐스트
+# app/routers/chat_rest.py
+
 @router.post("", response_model=CreateChatOut)
 def create_chat(
     body: CreateChatIn,
     db: Session = Depends(get_db),
     me: User = Depends(get_current_user),
 ):
-    # 1) 게시글 확인
     posting = db.query(Posting).filter(Posting.id == body.postingId).first()
     if not posting:
         raise HTTPException(status_code=404, detail="posting_not_found")
 
-    # 2) 자기 자신에게 채팅 방지
     if posting.seller_id == me.user_id:
         raise HTTPException(status_code=400, detail="cannot_chat_with_self")
 
-    # 3) 채팅방 생성 (buyer = me, seller = 게시글 작성자)
     room = ChatRoom(
         posting_id=posting.id,
         seller_id=posting.seller_id,
         buyer_id=me.user_id,
     )
     db.add(room)
+
+    # 🔥 여기서 chatCount +1
+    posting.chat_count = (posting.chat_count or 0) + 1
+
     db.commit()
     db.refresh(room)
-
-    # ✅ 여기서는 WS 브로드캐스트 안 보냄! (첫 메시지 때 보냄)
+    db.refresh(posting)
 
     return CreateChatOut(
         chatId=room.id,
