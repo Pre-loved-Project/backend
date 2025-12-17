@@ -80,26 +80,25 @@ def _build_last_message(chat: ChatRoom, me_id: int, db: Session) -> dict:
         .first()
     )
 
-    # 🔥 메시지가 하나도 없을 때 기본값
     if not last_msg:
         return {
-            "messageId": None,
+            "messageId": 0,
             "isMine": False,
             "type": "text",
             "content": "메시지 없음",
-            "sendAt": None,
+            "sendAt": chat.created_at.astimezone().isoformat(),
             "isRead": True,
         }
 
-    # 내가 읽었는지 여부 (ChatRead 기준)
     read = (
         db.query(ChatRead)
         .filter(
-            ChatRead.last_read_message_id >= me_id,
+            ChatRead.room_id == chat.id,
+            ChatRead.user_id == me_id,
+            ChatRead.last_read_message_id >= last_msg.id,
         )
         .count() > 0
     )
-
 
     return {
         "messageId": last_msg.id,
@@ -109,6 +108,7 @@ def _build_last_message(chat: ChatRoom, me_id: int, db: Session) -> dict:
         "sendAt": last_msg.created_at.astimezone().isoformat(),
         "isRead": read,
     }
+
 
 
 
@@ -150,17 +150,19 @@ async def broadcast_chat_created(chat: ChatRoom, db: Session):
 
 
 async def broadcast_chat_list_update(chat: ChatRoom, last_msg: ChatMessage, db: Session):
-    """해당 채팅방의 lastMessage 변경 시 buyer/seller 둘에게 chat_list_update 이벤트"""
     users = [chat.buyer_id, chat.seller_id]
 
     for uid in users:
-        if not last_msg:
-            continue
+        # last_msg가 None일 일은 거의 없겠지만, 방어 코드
+        last_message = _build_last_message(chat, uid, db)
+
         payload = {
             "chatId": chat.id,
-            "lastMessage": last_msg,
+            "lastMessage": last_message,
         }
         await broadcast_to_user(uid, "chat_list_update", payload)
+
+
 
 
 # ---------- WebSocket 엔드포인트 ----------

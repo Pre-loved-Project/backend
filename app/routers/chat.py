@@ -30,6 +30,7 @@ class CreateChatOut(BaseModel):
 
 
 # ✅ POST /api/chat
+
 @router.post("", response_model=CreateChatOut, status_code=status.HTTP_201_CREATED)
 def create_chat(
     req: CreateChatIn,
@@ -57,8 +58,13 @@ def create_chat(
         status=None,
     )
     db.add(room)
+
+    # 🔥 여기서 chatCount +1
+    posting.chat_count = (posting.chat_count or 0) + 1
+
     db.commit()
     db.refresh(room)
+    db.refresh(posting)
 
     return CreateChatOut(
         chatId=room.id,
@@ -123,16 +129,23 @@ def get_my_chats(
             .first()
         )
 
-        last_msg_out: Optional[ChatLastMessageOut] = None
-
-        if last_msg:
-            # ✅ 이 유저가 마지막 메시지를 읽었는지: message_id + user_id 기준으로 체크
+        # 기본값: 메시지가 없을 때
+        if last_msg is None:
+            last_msg_out = ChatLastMessageOut(
+                messageId=0,                 # 실제 메시지 아님 (더미값)
+                isMine=False,
+                type="text",                 # 그냥 텍스트로 통일
+                content="메시지 없음",
+                sendAt=room.created_at,      # 방 생성 시간 정도로 넣어도 됨
+                isRead=True,
+            )
+        else:
             read_row: Optional[ChatRead] = (
                 db.query(ChatRead)
                 .filter(
-                    ChatRead.last_read_message_id >= last_msg.id,
+                    ChatRead.room_id == room.id,
                     ChatRead.user_id == me.user_id,
-                    ChatRead.room_id == room.id
+                    ChatRead.last_read_message_id >= last_msg.id,
                 )
                 .first()
             )
@@ -147,6 +160,9 @@ def get_my_chats(
                 sendAt=last_msg.created_at,
                 isRead=last_is_read,
             )
+
+
+
 
 
         status_value = room.status or "ACTIVE"
